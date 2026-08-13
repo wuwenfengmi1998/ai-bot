@@ -29,6 +29,9 @@
 .env.*
 !.env.example
 
+# Runtime data
+/data/
+
 # Go workspace files
 go.work
 go.work.sum
