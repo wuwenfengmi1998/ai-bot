@@ -2,7 +2,7 @@ package cli
 
 import "strings"
 
-var commands = []string{"/exit", "/quit", "/help", "/models", "/use", "/think", "/effort", "/context", "/tools", "/dream", "/memories", "/sessions", "/session", "/info"}
+var commands = []string{"/exit", "/quit", "/help", "/models", "/use", "/think", "/effort", "/context", "/tools", "/dream", "/forge", "/memories", "/sessions", "/session", "/info"}
 
 func Complete(line string, models []string) []string {
 	fields := strings.Fields(line)

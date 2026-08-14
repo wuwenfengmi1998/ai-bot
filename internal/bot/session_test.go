@@ -85,3 +85,15 @@ func TestRestoreTrimsHistory(t *testing.T) {
 		t.Errorf("history 应截断到 %d, got %d", maxHistory, len(b.history))
 	}
 }
+
+func TestClearHistory(t *testing.T) {
+	b := newTestBot(t)
+	b.history = append(b.history, openai.UserMessage("hi"))
+	b.ClearHistory()
+	if len(b.history) != 0 {
+		t.Errorf("history 应清空, got %d", len(b.history))
+	}
+	if b.systemPrompt != "测试系统提示" {
+		t.Errorf("systemPrompt 应保留: %q", b.systemPrompt)
+	}
+}

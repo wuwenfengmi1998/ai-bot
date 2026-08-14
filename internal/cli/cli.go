@@ -20,6 +20,26 @@ func New(b *bot.Bot, db *sql.DB) *Handler {
 	return &Handler{bot: b, db: db}
 }
 
+// saveSessionAndReset 将当前内存会话存档为新的会话行，并清空内存开启新对话。
+func (h *Handler) saveSessionAndReset() {
+	msgs := h.bot.SessionMessages()
+	if len(msgs) == 0 {
+		return
+	}
+	provider, model := h.bot.Current()
+	sess := &store.Session{
+		Provider: provider,
+		Model:    model,
+		Messages: msgs,
+	}
+	if _, err := store.SaveSession(h.db, sess); err != nil {
+		fmt.Printf("⚠️  保存会话失败: %v\n", err)
+		return
+	}
+	h.bot.ClearHistory()
+	fmt.Printf("💾 会话已存档 (%d 条消息)，已开启新对话\n", len(msgs))
+}
+
 func formatWindow(n int64) string {
 	switch {
 	case n <= 0:
@@ -63,7 +83,8 @@ func (h *Handler) Handle(input string) bool {
 		fmt.Println("  /effort <low|high|max>  设置思考强度")
 		fmt.Println("  /context           打印当前聊天上下文")
 		fmt.Println("  /tools             列出可用工具")
-		fmt.Println("  /dream             从对话中提取长期记忆")
+		fmt.Println("  /dream             从对话中提取长期记忆并开启新对话")
+		fmt.Println("  /forge             直接清空对话，不提取记忆不存档")
 		fmt.Println("  /memories          列出已提取的记忆")
 		fmt.Println("  /sessions          列出历史会话")
 		fmt.Println("  /session <id>      切换到历史会话，如 /session 3")
@@ -141,6 +162,7 @@ func (h *Handler) Handle(input string) bool {
 		}
 		if len(ms) == 0 {
 			fmt.Println("🧠 没有新的记忆")
+			h.saveSessionAndReset()
 			return true
 		}
 		if _, err := store.SaveMemories(h.db, ms); err != nil {
@@ -151,6 +173,10 @@ func (h *Handler) Handle(input string) bool {
 		for _, m := range ms {
 			fmt.Printf("  [%s %d] %s\n", m.Category, m.Importance, m.Content)
 		}
+		h.saveSessionAndReset()
+	case "/forge":
+		h.bot.ClearHistory()
+		fmt.Println("💬 会话已清空，已开启新对话")
 	case "/memories":
 		list, err := store.ListMemories(h.db)
 		if err != nil {

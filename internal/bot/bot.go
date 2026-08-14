@@ -138,6 +138,11 @@ func (b *Bot) Tools() []string {
 	return b.toolRegistry.List()
 }
 
+// ClearHistory 清空内存中的会话历史，开启新对话（系统提示词保留）。
+func (b *Bot) ClearHistory() {
+	b.history = nil
+}
+
 func (b *Bot) ContextWindow() int64 {
 	if m := config.FindModel(b.provider, b.model); m != nil {
 		return m.ContextWindow
