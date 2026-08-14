@@ -22,8 +22,6 @@ const (
 	maxToolRounds = 5
 )
 
-var toolRegistry = tools.NewRegistry(builtin.TimeTool{}, builtin.CalculatorTool{}, builtin.RandomTool{})
-
 type Bot struct {
 	clients        map[string]*openai.Client
 	cfg            *config.Config
@@ -35,13 +33,15 @@ type Bot struct {
 	visionModel    string
 	history        []openai.ChatCompletionMessageParamUnion
 	systemPrompt   string
+	toolRegistry   *tools.Registry
 }
 
-func New(cfg *config.Config) *Bot {
+func New(cfg *config.Config) (*Bot, error) {
 	b := &Bot{
 		clients:      make(map[string]*openai.Client),
 		cfg:          cfg,
 		systemPrompt: cfg.SystemPrompt,
+		toolRegistry: tools.NewRegistry(builtin.TimeTool{}, builtin.CalculatorTool{}, builtin.RandomTool{}),
 	}
 	b.provider = config.FindProvider(cfg.DefaultProvider)
 	b.model = cfg.DefaultModel
@@ -57,7 +57,10 @@ func New(cfg *config.Config) *Bot {
 			b.visionProvider, b.visionModel = p, m
 		}
 	}
-	return b
+	if err := b.toolRegistry.InitConfigs(); err != nil {
+		return nil, err
+	}
+	return b, nil
 }
 
 func (b *Bot) clientFor(p *config.Provider) *openai.Client {
@@ -120,7 +123,7 @@ func (b *Bot) CurrentRoles() (tool, vision string) {
 }
 
 func (b *Bot) Tools() []string {
-	return toolRegistry.List()
+	return b.toolRegistry.List()
 }
 
 func (b *Bot) ContextDump() string {
@@ -202,7 +205,7 @@ func (b *Bot) toolRound(ctx context.Context, userMsg string, onReasoning func(st
 		params := openai.ChatCompletionNewParams{
 			Model:    b.toolModel,
 			Messages: history,
-			Tools:    toolRegistry.ParamList(),
+			Tools:    b.toolRegistry.ParamList(),
 		}
 		b.applyThinkingParams(&params, b.toolProvider)
 		stream := b.clientFor(b.toolProvider).Chat.Completions.NewStreaming(ctx, params)
@@ -254,7 +257,7 @@ func (b *Bot) toolRound(ctx context.Context, userMsg string, onReasoning func(st
 			if onTool != nil {
 				onTool(tc.Function.Name, tc.Function.Arguments)
 			}
-			result, err := toolRegistry.Execute(tc.Function.Name, json.RawMessage(tc.Function.Arguments))
+			result, err := b.toolRegistry.Execute(tc.Function.Name, json.RawMessage(tc.Function.Arguments))
 			if err != nil {
 				result = "工具执行失败: " + err.Error()
 			}

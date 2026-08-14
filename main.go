@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"os"
 	"strings"
 
 	"github.com/peterh/liner"
@@ -20,7 +21,12 @@ func main() {
 	if err != nil {
 		log.Fatalf("加载配置失败: %v", err)
 	}
-	b := bot.New(cfg)
+	b, err := bot.New(cfg)
+	if err != nil {
+		fmt.Printf("⚠️  %v\n", err)
+		fmt.Println("请填写工具配置文件后重新启动。")
+		os.Exit(1)
+	}
 	provider, model := b.Current()
 	fmt.Printf("🤖 %s 已启动 (供应商: %s, 模型: %s)。输入问题开始对话，输入 /help 查看命令。\n",
 		cfg.BotName, provider, model)

@@ -11,8 +11,9 @@ import (
 )
 
 const (
-	configDir  = "data"
-	configFile = "config.yaml"
+	configDir     = "data"
+	configFile    = "config.yaml"
+	toolConfigDir = "data/tools"
 )
 
 type Provider struct {
@@ -269,4 +270,37 @@ func writeFile(path string, c *Config) error {
 		return err
 	}
 	return os.WriteFile(path, data, 0o644)
+}
+
+// LoadToolConfig 读取 data/tools/<name>.yaml，文件不存在时返回 ok=false。
+func LoadToolConfig(name string) (cfg map[string]any, ok bool, err error) {
+	path := filepath.Join(toolConfigDir, name+".yaml")
+	data, err := os.ReadFile(path)
+	if os.IsNotExist(err) {
+		return nil, false, nil
+	}
+	if err != nil {
+		return nil, false, err
+	}
+	if err := yaml.Unmarshal(data, &cfg); err != nil {
+		return nil, false, fmt.Errorf("解析工具配置 %s 失败: %w", path, err)
+	}
+	return cfg, true, nil
+}
+
+// WriteDefaultToolConfig 生成工具默认配置模板到 data/tools/<name>.yaml。
+func WriteDefaultToolConfig(name string, defaults map[string]any) error {
+	if err := os.MkdirAll(toolConfigDir, 0o755); err != nil {
+		return err
+	}
+	data, err := yaml.Marshal(defaults)
+	if err != nil {
+		return err
+	}
+	path := filepath.Join(toolConfigDir, name+".yaml")
+	return os.WriteFile(path, data, 0o644)
+}
+
+func ToolConfigPath(name string) string {
+	return filepath.Join(toolConfigDir, name+".yaml")
 }
