@@ -1,6 +1,10 @@
 package tokens
 
-import "github.com/pkoukk/tiktoken-go"
+import (
+	"strings"
+
+	"github.com/pkoukk/tiktoken-go"
+)
 
 var tke *tiktoken.Tiktoken
 
@@ -22,11 +26,12 @@ type Token struct {
 }
 
 // Tokenize 将文本编码为 token 列表（去重），Text 为 token 对应的符号。
-// 编码器初始化失败时返回 nil。
+// 文本先统一转小写，使索引与查询大小写不敏感；编码器初始化失败时返回 nil。
 func Tokenize(text string) []Token {
 	if text == "" {
 		return nil
 	}
+	text = strings.ToLower(text)
 	enc := getEncoding()
 	if enc == nil {
 		return nil

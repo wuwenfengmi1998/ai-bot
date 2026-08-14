@@ -60,6 +60,23 @@ func TestTokenize(t *testing.T) {
 	}
 }
 
+func TestTokenizeCaseInsensitive(t *testing.T) {
+	upper := tokens.Tokenize("Kevin 的生日")
+	lower := tokens.Tokenize("kevin 的生日")
+	if len(upper) != len(lower) {
+		t.Fatalf("大小写 token 数量不一致: %v vs %v", upper, lower)
+	}
+	for i := range upper {
+		if upper[i].ID != lower[i].ID {
+			t.Errorf("token %d: %d != %d（大小写应编码为相同 id）", i, upper[i].ID, lower[i].ID)
+		}
+	}
+	chinese := tokens.Tokenize("用户喜欢喝咖啡")
+	if len(chinese) == 0 {
+		t.Error("中文文本应产生 token")
+	}
+}
+
 func TestContextStats(t *testing.T) {
 	b := &Bot{
 		systemPrompt: "你是一个乐于助人的 AI 助手。",

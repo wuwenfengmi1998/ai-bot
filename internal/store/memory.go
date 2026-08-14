@@ -277,6 +277,43 @@ func UnindexedMemoryIDs(db *sql.DB) ([]int64, error) {
 	return out, rows.Err()
 }
 
+// RebuildTokenIndex 清空 token 索引并重新为全部记忆建立索引，返回处理的记忆数。
+func RebuildTokenIndex(db *sql.DB) (int, error) {
+	memories, err := ListMemories(db)
+	if err != nil {
+		return 0, err
+	}
+	tx, err := db.Begin()
+	if err != nil {
+		return 0, fmt.Errorf("开启事务失败: %w", err)
+	}
+	defer tx.Rollback()
+	if _, err := tx.Exec("DELETE FROM memory_tokens"); err != nil {
+		return 0, fmt.Errorf("清空 memory_tokens 失败: %w", err)
+	}
+	if _, err := tx.Exec("DELETE FROM tokens"); err != nil {
+		return 0, fmt.Errorf("清空 tokens 失败: %w", err)
+	}
+	for _, m := range memories {
+		tokenList := tokens.Tokenize(m.Content)
+		if len(tokenList) == 0 {
+			continue
+		}
+		for _, t := range tokenList {
+			if _, err := tx.Exec("INSERT OR IGNORE INTO tokens (token_id, token_text) VALUES (?, ?)", t.ID, t.Text); err != nil {
+				return 0, fmt.Errorf("保存 token 失败: %w", err)
+			}
+			if _, err := tx.Exec("INSERT OR IGNORE INTO memory_tokens (memory_id, token_id) VALUES (?, ?)", m.ID, t.ID); err != nil {
+				return 0, fmt.Errorf("建立 token 关联失败: %w", err)
+			}
+		}
+	}
+	if err := tx.Commit(); err != nil {
+		return 0, fmt.Errorf("提交事务失败: %w", err)
+	}
+	return len(memories), nil
+}
+
 // SearchMemoriesByTokens 按 token id 搜索相关记忆，按命中 token 数从多到少排序。
 // limit 钳制在 1-10。
 func SearchMemoriesByTokens(db *sql.DB, tokenIDs []int64, limit int) ([]Memory, error) {

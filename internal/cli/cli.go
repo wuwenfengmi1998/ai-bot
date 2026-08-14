@@ -117,6 +117,7 @@ func (h *Handler) Handle(input string) bool {
 		fmt.Println("  /dream             从对话中提取长期记忆并开启新对话")
 		fmt.Println("  /forge             直接清空对话，不提取记忆不存档")
 		fmt.Println("  /memories          列出已提取的记忆")
+		fmt.Println("  /reindex           重建全部记忆的搜索索引")
 		fmt.Println("  /sessions          列出历史会话")
 		fmt.Println("  /session <id>      切换到历史会话，如 /session 3")
 		fmt.Println("  /info              显示当前供应商、模型和思考配置")
@@ -225,6 +226,13 @@ func (h *Handler) Handle(input string) bool {
 		for _, m := range list {
 			fmt.Printf("  #%d %s [%s %d] %s\n", m.ID, m.CreatedAt.Format("2006-01-02 15:04"), m.Category, m.Importance, m.Content)
 		}
+	case "/reindex":
+		n, err := store.RebuildTokenIndex(h.db)
+		if err != nil {
+			fmt.Printf("⚠️  %v\n", err)
+			return true
+		}
+		fmt.Printf("🔗 已重建搜索索引 (%d 条记忆)\n", n)
 	case "/sessions":
 		list, err := store.ListSessions(h.db)
 		if err != nil {

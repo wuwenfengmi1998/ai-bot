@@ -260,3 +260,60 @@ func TestSearchMemoriesByTokens(t *testing.T) {
 		t.Errorf("空 token 应返回 nil, %v %v", res, err)
 	}
 }
+
+// 回归：大小写规范化后，索引大写内容、小写查询应命中
+func TestSearchCaseInsensitive(t *testing.T) {
+	db := openMemDB(t)
+	ids, err := SaveMemories(db, []Memory{
+		{Content: "用户朋友Kevin的生日是9月12日", Category: "fact"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := SaveMemoryTokens(db, ids[0], tokens.Tokenize("用户朋友Kevin的生日是9月12日")); err != nil {
+		t.Fatal(err)
+	}
+	res, err := SearchMemoriesByTokens(db, tokens.TokenIDs(tokens.Tokenize("kevin 是谁")), 5)
+	if err != nil {
+		t.Fatalf("搜索出错: %v", err)
+	}
+	if len(res) != 1 || res[0].ID != ids[0] {
+		t.Errorf("小写查询应命中大写索引的记忆: %+v", res)
+	}
+}
+
+func TestRebuildTokenIndex(t *testing.T) {
+	db := openMemDB(t)
+	ids, err := SaveMemories(db, []Memory{
+		{Content: "用户喜欢咖啡"},
+		{Content: "用户喜欢茶"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := SaveMemoryTokens(db, ids[0], []tokens.Token{{ID: 1, Text: " 1"}}); err != nil {
+		t.Fatal(err)
+	}
+	n, err := RebuildTokenIndex(db)
+	if err != nil {
+		t.Fatalf("RebuildTokenIndex 出错: %v", err)
+	}
+	if n != 2 {
+		t.Errorf("重建数量 = %d, want 2", n)
+	}
+	var count int64
+	if err := db.QueryRow("SELECT COUNT(*) FROM tokens").Scan(&count); err != nil {
+		t.Fatal(err)
+	}
+	if count == 0 {
+		t.Error("重建后 tokens 不应为空")
+	}
+	// 旧 token 1 已被清空重建
+	var oldExists int64
+	if err := db.QueryRow("SELECT COUNT(*) FROM tokens WHERE token_id = 1").Scan(&oldExists); err != nil {
+		t.Fatal(err)
+	}
+	if oldExists != 0 {
+		t.Error("旧 token 应被清空")
+	}
+}
