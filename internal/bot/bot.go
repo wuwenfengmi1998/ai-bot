@@ -41,7 +41,7 @@ func New(cfg *config.Config) (*Bot, error) {
 		clients:      make(map[string]*openai.Client),
 		cfg:          cfg,
 		systemPrompt: cfg.SystemPrompt,
-		toolRegistry: tools.NewRegistry(builtin.TimeTool{}, builtin.CalculatorTool{}, builtin.RandomTool{}),
+		toolRegistry: tools.NewRegistry(builtin.NewTimeTool(), builtin.NewCalculatorTool(), builtin.NewRandomTool()),
 	}
 	b.provider = config.FindProvider(cfg.DefaultProvider)
 	b.model = cfg.DefaultModel

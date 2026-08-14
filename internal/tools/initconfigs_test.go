@@ -12,6 +12,7 @@ import (
 type stubConfigurable struct {
 	configured map[string]any
 	fail       bool
+	enabled    bool
 }
 
 func (s *stubConfigurable) Name() string        { return "db" }
@@ -22,12 +23,16 @@ func (s *stubConfigurable) Parameters() map[string]any {
 func (s *stubConfigurable) Execute(args json.RawMessage) (string, error) {
 	return "ok", nil
 }
+func (s *stubConfigurable) Enabled() bool { return s.enabled }
 func (s *stubConfigurable) DefaultConfig() map[string]any {
-	return map[string]any{"host": "127.0.0.1", "password": "请填写"}
+	return map[string]any{"enabled": true, "password": "请填写"}
 }
 func (s *stubConfigurable) Configure(cfg map[string]any) error {
 	if s.fail {
 		return fmt.Errorf("密码为空")
+	}
+	if v, ok := cfg["enabled"].(bool); ok {
+		s.enabled = v
 	}
 	s.configured = cfg
 	return nil
@@ -61,7 +66,7 @@ func TestInitConfigsOK(t *testing.T) {
 	if err := os.WriteFile(path, []byte("host: localhost\npassword: secret\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	stub := &stubConfigurable{}
+	stub := &stubConfigurable{enabled: true}
 	if err := NewRegistry(stub).InitConfigs(); err != nil {
 		t.Fatalf("InitConfigs 出错: %v", err)
 	}
@@ -85,5 +90,27 @@ func TestInitConfigsSkipsPlain(t *testing.T) {
 	t.Chdir(t.TempDir())
 	if err := NewRegistry(stubTool{}).InitConfigs(); err != nil {
 		t.Fatalf("普通工具不应报错: %v", err)
+	}
+}
+
+func TestInitConfigsDisables(t *testing.T) {
+	t.Chdir(t.TempDir())
+	if err := os.MkdirAll(filepath.Join("data", "tools"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join("data", "tools", "db.yaml")
+	if err := os.WriteFile(path, []byte("enabled: false\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	stub := &stubConfigurable{enabled: true}
+	r := NewRegistry(stub)
+	if err := r.InitConfigs(); err != nil {
+		t.Fatalf("InitConfigs 出错: %v", err)
+	}
+	if stub.Enabled() {
+		t.Fatal("工具应被禁用")
+	}
+	if _, ok := r.Get("db"); ok {
+		t.Error("禁用的工具应被移出注册表")
 	}
 }

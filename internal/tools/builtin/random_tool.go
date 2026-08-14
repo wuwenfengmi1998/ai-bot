@@ -6,13 +6,37 @@ import (
 	"math/rand/v2"
 )
 
-type RandomTool struct{}
-
-func (RandomTool) Name() string { return "random_number" }
-func (RandomTool) Description() string {
-	return "生成指定范围内的随机整数，默认 0 到 100（含端点）"
+type randomTool struct {
+	enabled bool
+	prompt  string
 }
-func (RandomTool) Parameters() map[string]any {
+
+func NewRandomTool() *randomTool {
+	return &randomTool{
+		enabled: true,
+		prompt:  "生成指定范围内的随机整数，默认 0 到 100（含端点）",
+	}
+}
+
+func (t *randomTool) Name() string        { return "random_number" }
+func (t *randomTool) Description() string { return t.prompt }
+func (t *randomTool) Enabled() bool       { return t.enabled }
+func (t *randomTool) DefaultConfig() map[string]any {
+	return map[string]any{"enabled": true, "prompt": t.prompt}
+}
+
+func (t *randomTool) Configure(cfg map[string]any) error {
+	var err error
+	if t.enabled, err = parseEnabled(cfg); err != nil {
+		return err
+	}
+	if p, ok := cfg["prompt"].(string); ok && p != "" {
+		t.prompt = p
+	}
+	return nil
+}
+
+func (t *randomTool) Parameters() map[string]any {
 	return map[string]any{
 		"type": "object",
 		"properties": map[string]any{
@@ -22,7 +46,7 @@ func (RandomTool) Parameters() map[string]any {
 	}
 }
 
-func (RandomTool) Execute(args json.RawMessage) (string, error) {
+func (t *randomTool) Execute(args json.RawMessage) (string, error) {
 	var p struct {
 		Min *int `json:"min"`
 		Max *int `json:"max"`

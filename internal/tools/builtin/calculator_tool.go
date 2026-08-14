@@ -9,13 +9,37 @@ import (
 	"github.com/expr-lang/expr"
 )
 
-type CalculatorTool struct{}
-
-func (CalculatorTool) Name() string { return "calculate" }
-func (CalculatorTool) Description() string {
-	return "计算数学表达式，如 \"(12 + 3) * 4\"、\"2^10\"、\"sqrt(9)\""
+type calculatorTool struct {
+	enabled bool
+	prompt  string
 }
-func (CalculatorTool) Parameters() map[string]any {
+
+func NewCalculatorTool() *calculatorTool {
+	return &calculatorTool{
+		enabled: true,
+		prompt:  "计算数学表达式，如 \"(12 + 3) * 4\"、\"2^10\"、\"sqrt(9)\"",
+	}
+}
+
+func (t *calculatorTool) Name() string        { return "calculate" }
+func (t *calculatorTool) Description() string { return t.prompt }
+func (t *calculatorTool) Enabled() bool       { return t.enabled }
+func (t *calculatorTool) DefaultConfig() map[string]any {
+	return map[string]any{"enabled": true, "prompt": t.prompt}
+}
+
+func (t *calculatorTool) Configure(cfg map[string]any) error {
+	var err error
+	if t.enabled, err = parseEnabled(cfg); err != nil {
+		return err
+	}
+	if p, ok := cfg["prompt"].(string); ok && p != "" {
+		t.prompt = p
+	}
+	return nil
+}
+
+func (t *calculatorTool) Parameters() map[string]any {
 	return map[string]any{
 		"type": "object",
 		"properties": map[string]any{
@@ -25,7 +49,7 @@ func (CalculatorTool) Parameters() map[string]any {
 	}
 }
 
-func (CalculatorTool) Execute(args json.RawMessage) (string, error) {
+func (t *calculatorTool) Execute(args json.RawMessage) (string, error) {
 	var p struct {
 		Expression string `json:"expression"`
 	}

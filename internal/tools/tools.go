@@ -27,6 +27,11 @@ type Configurable interface {
 	Configure(cfg map[string]any) error
 }
 
+// Enabler 是可开关工具的接口：Configure 后返回 false 的工具会被移出注册表。
+type Enabler interface {
+	Enabled() bool
+}
+
 type Registry struct {
 	tools map[string]Tool
 }
@@ -101,6 +106,9 @@ func (r *Registry) InitConfigs() error {
 		}
 		if err := c.Configure(cfg); err != nil {
 			return fmt.Errorf("工具 %s 配置无效: %w", name, err)
+		}
+		if e, ok := t.(Enabler); ok && !e.Enabled() {
+			delete(r.tools, name)
 		}
 	}
 	if len(missing) > 0 {
