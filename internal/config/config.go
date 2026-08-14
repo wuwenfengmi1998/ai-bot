@@ -16,10 +16,12 @@ const (
 )
 
 type Provider struct {
-	Name    string   `yaml:"name"`
-	APIKey  string   `yaml:"api_key"`
-	BaseURL string   `yaml:"base_url"`
-	Models  []string `yaml:"models"`
+	Name            string   `yaml:"name"`
+	APIKey          string   `yaml:"api_key"`
+	BaseURL         string   `yaml:"base_url"`
+	Models          []string `yaml:"models"`
+	Thinking        string   `yaml:"thinking"`
+	ReasoningEffort string   `yaml:"reasoning_effort"`
 }
 
 type Config struct {
@@ -145,6 +147,12 @@ func validate(c *Config) error {
 			if m == "" {
 				return fmt.Errorf("供应商 %s 包含空模型名", p.Name)
 			}
+		}
+		if p.Thinking != "" && !contains([]string{"enabled", "disabled"}, p.Thinking) {
+			return fmt.Errorf("供应商 %s 的 thinking 无效: %q（可选 enabled/disabled）", p.Name, p.Thinking)
+		}
+		if p.ReasoningEffort != "" && !contains([]string{"low", "high", "max"}, p.ReasoningEffort) {
+			return fmt.Errorf("供应商 %s 的 reasoning_effort 无效: %q（可选 low/high/max）", p.Name, p.ReasoningEffort)
 		}
 	}
 	if _, ok := names[c.DefaultProvider]; !ok {

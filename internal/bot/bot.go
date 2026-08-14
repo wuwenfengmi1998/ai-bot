@@ -2,10 +2,12 @@ package bot
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 
 	"github.com/openai/openai-go"
 	"github.com/openai/openai-go/option"
+	"github.com/openai/openai-go/shared"
 	"myaibot/internal/config"
 )
 
@@ -61,7 +63,27 @@ func (b *Bot) SwitchModel(id string) error {
 	return nil
 }
 
-func (b *Bot) Chat(ctx context.Context, userMsg string) (string, error) {
+func (b *Bot) SetThinking(v string) error {
+	if v != "enabled" && v != "disabled" {
+		return fmt.Errorf("无效值: %s（可选 enabled/disabled）", v)
+	}
+	b.provider.Thinking = v
+	return nil
+}
+
+func (b *Bot) SetEffort(v string) error {
+	if v != "low" && v != "high" && v != "max" {
+		return fmt.Errorf("无效值: %s（可选 low/high/max）", v)
+	}
+	b.provider.ReasoningEffort = v
+	return nil
+}
+
+func (b *Bot) ThinkingConfig() (string, string) {
+	return b.provider.Thinking, b.provider.ReasoningEffort
+}
+
+func (b *Bot) Chat(ctx context.Context, userMsg string, onReasoning, onContent func(string)) (string, error) {
 	if b.provider.APIKey == "" {
 		return "", fmt.Errorf("供应商 %s 未配置 api_key，请编辑 data/config.yaml", b.provider.Name)
 	}
@@ -70,14 +92,32 @@ func (b *Bot) Chat(ctx context.Context, userMsg string) (string, error) {
 	history = append(history, b.history...)
 	history = append(history, openai.UserMessage(userMsg))
 
-	stream := b.client().Chat.Completions.NewStreaming(ctx, openai.ChatCompletionNewParams{
+	params := openai.ChatCompletionNewParams{
 		Model:    b.model,
 		Messages: history,
-	})
+	}
+	if p := b.provider; p.ReasoningEffort != "" && p.Thinking != "disabled" {
+		params.ReasoningEffort = shared.ReasoningEffort(p.ReasoningEffort)
+	}
+	if b.provider.Thinking != "" {
+		params.SetExtraFields(map[string]any{
+			"thinking": map[string]string{"type": b.provider.Thinking},
+		})
+	}
+	stream := b.client().Chat.Completions.NewStreaming(ctx, params)
 	answer := ""
 	for stream.Next() {
-		for _, delta := range stream.Current().Choices {
-			answer += delta.Delta.Content
+		for _, choice := range stream.Current().Choices {
+			if rc, ok := choice.Delta.JSON.ExtraFields["reasoning_content"]; ok && rc.Valid() {
+				var s string
+				if json.Unmarshal([]byte(rc.Raw()), &s) == nil && s != "" {
+					onReasoning(s)
+				}
+			}
+			if choice.Delta.Content != "" {
+				answer += choice.Delta.Content
+				onContent(choice.Delta.Content)
+			}
 		}
 	}
 	if err := stream.Err(); err != nil {
