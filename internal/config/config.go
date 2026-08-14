@@ -1,12 +1,16 @@
 package config
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 
+	"github.com/openai/openai-go"
+	"github.com/openai/openai-go/option"
 	"gopkg.in/yaml.v3"
 )
 
@@ -16,13 +20,43 @@ const (
 	toolConfigDir = "data/tools"
 )
 
+type ModelConfig struct {
+	Name          string `yaml:"name"`
+	ContextWindow int64  `yaml:"context_window"`
+}
+
+// UnmarshalYAML 兼容两种格式：
+//
+//	models: [deepseek-v4-flash, deepseek-v4-pro]   # 字符串列表（旧格式）
+//	models:
+//	  - name: deepseek-v4-flash
+//	    context_window: 1048576                    # 对象列表
+func (m *ModelConfig) UnmarshalYAML(node *yaml.Node) error {
+	switch node.Kind {
+	case yaml.ScalarNode:
+		m.Name = node.Value
+		return nil
+	case yaml.MappingNode:
+		type raw ModelConfig
+		var r raw
+		if err := node.Decode(&r); err != nil {
+			return err
+		}
+		*m = ModelConfig(r)
+		return nil
+	default:
+		return fmt.Errorf("模型配置必须是字符串或对象")
+	}
+}
+
 type Provider struct {
-	Name            string   `yaml:"name"`
-	APIKey          string   `yaml:"api_key"`
-	BaseURL         string   `yaml:"base_url"`
-	Models          []string `yaml:"models"`
-	Thinking        string   `yaml:"thinking"`
-	ReasoningEffort string   `yaml:"reasoning_effort"`
+	Name            string        `yaml:"name"`
+	APIKey          string        `yaml:"api_key"`
+	BaseURL         string        `yaml:"base_url"`
+	Models          []ModelConfig `yaml:"models"`
+	AutoFetchModels bool          `yaml:"auto_fetch_models"`
+	Thinking        string        `yaml:"thinking"`
+	ReasoningEffort string        `yaml:"reasoning_effort"`
 }
 
 type Config struct {
@@ -110,17 +144,17 @@ func migrateLegacy(path string, data []byte) error {
 		Name:    "openai",
 		APIKey:  legacy.APIKey,
 		BaseURL: legacy.BaseURL,
-		Models:  []string{legacy.Model},
+		Models:  []ModelConfig{{Name: legacy.Model}},
 	}
 	if p.BaseURL == "" {
 		p.BaseURL = "https://api.openai.com/v1"
 	}
-	if len(p.Models) == 0 || p.Models[0] == "" {
-		p.Models = []string{"gpt-4o-mini"}
+	if len(p.Models) == 0 || p.Models[0].Name == "" {
+		p.Models = []ModelConfig{{Name: "gpt-4o-mini"}}
 	}
 	cfg.Providers = []Provider{p}
 	cfg.DefaultProvider = p.Name
-	cfg.DefaultModel = p.Models[0]
+	cfg.DefaultModel = p.Models[0].Name
 	return writeFile(path, cfg)
 }
 
@@ -183,12 +217,15 @@ func validate(c *Config) error {
 		if p.BaseURL == "" {
 			return fmt.Errorf("供应商 %s 缺少 base_url", p.Name)
 		}
-		if len(p.Models) == 0 {
+		if len(p.Models) == 0 && !p.AutoFetchModels {
 			return fmt.Errorf("供应商 %s 未配置 models", p.Name)
 		}
 		for _, m := range p.Models {
-			if m == "" {
+			if m.Name == "" {
 				return fmt.Errorf("供应商 %s 包含空模型名", p.Name)
+			}
+			if m.ContextWindow < 0 {
+				return fmt.Errorf("供应商 %s 的模型 %s context_window 无效: %d（不能为负数）", p.Name, m.Name, m.ContextWindow)
 			}
 		}
 		if p.Thinking != "" && !contains([]string{"enabled", "disabled"}, p.Thinking) {
@@ -201,17 +238,17 @@ func validate(c *Config) error {
 	if _, ok := names[c.DefaultProvider]; !ok {
 		return fmt.Errorf("default_provider %q 不存在", c.DefaultProvider)
 	}
-	if _, _, err := ResolveModel(c.DefaultModel); err != nil {
-		return fmt.Errorf("default_model 无效: %w", err)
+	if err := validateModelRef("default_model", c.DefaultModel, c); err != nil {
+		return err
 	}
 	if c.ToolModel != "" {
-		if _, _, err := ResolveModel(c.ToolModel); err != nil {
-			return fmt.Errorf("tool_model 无效: %w", err)
+		if err := validateModelRef("tool_model", c.ToolModel, c); err != nil {
+			return err
 		}
 	}
 	if c.VisionModel != "" {
-		if _, _, err := ResolveModel(c.VisionModel); err != nil {
-			return fmt.Errorf("vision_model 无效: %w", err)
+		if err := validateModelRef("vision_model", c.VisionModel, c); err != nil {
+			return err
 		}
 	}
 	d := c.Database
@@ -224,36 +261,69 @@ func validate(c *Config) error {
 	return nil
 }
 
+// validateModelRef 校验模型引用；若引用指向启用了 auto_fetch_models 的供应商，
+// 则跳过存在性校验（模型列表将在启动时从 API 拉取）。
+func validateModelRef(field, id string, c *Config) error {
+	if _, _, err := ResolveModelIn(c, id); err == nil {
+		return nil
+	}
+	providerName, _, hasProvider := strings.Cut(id, "/")
+	if !hasProvider {
+		providerName = c.DefaultProvider
+	}
+	if p := FindProviderIn(c, providerName); p != nil && p.AutoFetchModels {
+		return nil
+	}
+	return fmt.Errorf("%s 无效: 模型 %q 不存在", field, id)
+}
+
 func FindProvider(name string) *Provider {
-	for i := range cfg.Providers {
-		if cfg.Providers[i].Name == name {
-			return &cfg.Providers[i]
+	return FindProviderIn(cfg, name)
+}
+
+func FindProviderIn(c *Config, name string) *Provider {
+	for i := range c.Providers {
+		if c.Providers[i].Name == name {
+			return &c.Providers[i]
+		}
+	}
+	return nil
+}
+
+func FindModel(p *Provider, name string) *ModelConfig {
+	for i := range p.Models {
+		if p.Models[i].Name == name {
+			return &p.Models[i]
 		}
 	}
 	return nil
 }
 
 func ResolveModel(id string) (*Provider, string, error) {
+	return ResolveModelIn(cfg, id)
+}
+
+func ResolveModelIn(c *Config, id string) (*Provider, string, error) {
 	if id == "" {
-		id = cfg.DefaultModel
+		id = c.DefaultModel
 	}
 	if providerName, modelName, ok := strings.Cut(id, "/"); ok {
-		p := FindProvider(providerName)
+		p := FindProviderIn(c, providerName)
 		if p == nil {
 			return nil, "", fmt.Errorf("供应商 %q 不存在", providerName)
 		}
-		if !contains(p.Models, modelName) {
+		if FindModel(p, modelName) == nil {
 			return nil, "", fmt.Errorf("供应商 %s 没有模型 %q", p.Name, modelName)
 		}
 		return p, modelName, nil
 	}
 	var found *Provider
-	for i := range cfg.Providers {
-		if contains(cfg.Providers[i].Models, id) {
+	for i := range c.Providers {
+		if FindModel(&c.Providers[i], id) != nil {
 			if found != nil {
 				return nil, "", fmt.Errorf("模型 %q 在多个供应商中存在，请使用 provider/model 格式指定", id)
 			}
-			found = &cfg.Providers[i]
+			found = &c.Providers[i]
 		}
 	}
 	if found == nil {
@@ -267,7 +337,7 @@ func AllModels() []string {
 	for i := range cfg.Providers {
 		p := &cfg.Providers[i]
 		for _, m := range p.Models {
-			out = append(out, p.Name+"/"+m)
+			out = append(out, p.Name+"/"+m.Name)
 		}
 	}
 	return out
@@ -293,13 +363,19 @@ func writeDefault(path string) error {
 				Name:    "openai",
 				APIKey:  "",
 				BaseURL: "https://api.openai.com/v1",
-				Models:  []string{"gpt-4o-mini", "gpt-4o"},
+				Models: []ModelConfig{
+					{Name: "gpt-4o-mini", ContextWindow: 128000},
+					{Name: "gpt-4o", ContextWindow: 128000},
+				},
 			},
 			{
 				Name:    "deepseek",
 				APIKey:  "",
 				BaseURL: "https://api.deepseek.com/v1",
-				Models:  []string{"deepseek-chat", "deepseek-reasoner"},
+				Models: []ModelConfig{
+					{Name: "deepseek-v4-flash", ContextWindow: 1048576},
+					{Name: "deepseek-v4-pro", ContextWindow: 1048576},
+				},
 			},
 		},
 		DefaultProvider: "openai",
@@ -358,4 +434,60 @@ func WriteDefaultToolConfig(name string, defaults map[string]any) error {
 
 func ToolConfigPath(name string) string {
 	return filepath.Join(toolConfigDir, name+".yaml")
+}
+
+// Save 将配置写回 data/config.yaml。
+func Save(c *Config) error {
+	path := filepath.Join(configDir, configFile)
+	return writeFile(path, c)
+}
+
+// ModelsEqual 比较两个模型的名称与上下文窗口是否完全一致。
+func ModelsEqual(a, b []ModelConfig) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i := range a {
+		if a[i].Name != b[i].Name || a[i].ContextWindow != b[i].ContextWindow {
+			return false
+		}
+	}
+	return true
+}
+
+// FetchModels 从供应商 API 拉取模型列表并合并进 p.Models。
+// 已配置模型的 context_window 保留，新模型默认 0。
+func FetchModels(ctx context.Context, p *Provider) error {
+	if p.APIKey == "" {
+		return errors.New("未配置 api_key")
+	}
+	client := openai.NewClient(
+		option.WithAPIKey(p.APIKey),
+		option.WithBaseURL(p.BaseURL),
+	)
+	page, err := client.Models.List(ctx)
+	if err != nil {
+		return fmt.Errorf("请求模型列表失败: %w", err)
+	}
+	ids := make([]string, 0, len(page.Data))
+	seen := make(map[string]bool, len(page.Data))
+	for _, m := range page.Data {
+		if m.ID == "" || seen[m.ID] {
+			continue
+		}
+		seen[m.ID] = true
+		ids = append(ids, m.ID)
+	}
+	sort.Strings(ids)
+
+	existing := make(map[string]int64, len(p.Models))
+	for _, m := range p.Models {
+		existing[m.Name] = m.ContextWindow
+	}
+	merged := make([]ModelConfig, 0, len(ids))
+	for _, id := range ids {
+		merged = append(merged, ModelConfig{Name: id, ContextWindow: existing[id]})
+	}
+	p.Models = merged
+	return nil
 }

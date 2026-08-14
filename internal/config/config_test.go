@@ -8,7 +8,7 @@ import (
 )
 
 func TestApplyDatabaseDefaults(t *testing.T) {
-	c := &Config{Providers: []Provider{{Name: "p", BaseURL: "x", Models: []string{"m"}}}}
+	c := &Config{Providers: []Provider{{Name: "p", BaseURL: "x", Models: []ModelConfig{{Name: "m"}}}}}
 	changed := applyDefaults(c)
 	if !changed {
 		t.Error("缺失字段应返回 changed=true")
@@ -28,7 +28,7 @@ func TestApplyDefaultsNoChange(t *testing.T) {
 		LogLevel:        "debug",
 		SystemPrompt:    "sp",
 		DefaultProvider: "p",
-		Providers:       []Provider{{Name: "p", BaseURL: "x", Models: []string{"m"}}},
+		Providers:       []Provider{{Name: "p", BaseURL: "x", Models: []ModelConfig{{Name: "m"}}}},
 		Database:        DatabaseConfig{Driver: "mysql", File: "f", Host: "h", Port: 3307, Name: "n"},
 	}
 	if applyDefaults(c) {
@@ -38,7 +38,7 @@ func TestApplyDefaultsNoChange(t *testing.T) {
 
 func TestApplyMySQLDefaults(t *testing.T) {
 	c := &Config{
-		Providers: []Provider{{Name: "p", BaseURL: "x", Models: []string{"m"}}},
+		Providers: []Provider{{Name: "p", BaseURL: "x", Models: []ModelConfig{{Name: "m"}}}},
 		Database:  DatabaseConfig{Driver: "mysql", Name: "memory"},
 	}
 	changed := applyDefaults(c)
@@ -117,7 +117,7 @@ func TestValidateDatabase(t *testing.T) {
 	c := &Config{
 		DefaultProvider: "p",
 		DefaultModel:    "m",
-		Providers:       []Provider{{Name: "p", BaseURL: "x", Models: []string{"m"}}},
+		Providers:       []Provider{{Name: "p", BaseURL: "x", Models: []ModelConfig{{Name: "m"}}}},
 		Database:        DatabaseConfig{Driver: "oracle"},
 	}
 	cfg = c

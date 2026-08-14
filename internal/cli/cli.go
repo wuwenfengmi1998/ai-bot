@@ -1,18 +1,35 @@
 package cli
 
 import (
+	"database/sql"
 	"fmt"
+	"strconv"
 	"strings"
 
 	"myaibot/internal/bot"
+	"myaibot/internal/store"
 )
 
 type Handler struct {
 	bot *bot.Bot
+	db  *sql.DB
 }
 
-func New(b *bot.Bot) *Handler {
-	return &Handler{bot: b}
+func New(b *bot.Bot, db *sql.DB) *Handler {
+	return &Handler{bot: b, db: db}
+}
+
+func formatWindow(n int64) string {
+	switch {
+	case n <= 0:
+		return "未配置"
+	case n >= 1048576:
+		return fmt.Sprintf("%dM tokens", n/1048576)
+	case n >= 1024:
+		return fmt.Sprintf("%dK tokens", n/1024)
+	default:
+		return fmt.Sprintf("%d tokens", n)
+	}
 }
 
 func (h *Handler) Handle(input string) bool {
@@ -30,6 +47,8 @@ func (h *Handler) Handle(input string) bool {
 		fmt.Println("  /effort <low|high|max>  设置思考强度")
 		fmt.Println("  /context           打印当前聊天上下文")
 		fmt.Println("  /tools             列出可用工具")
+		fmt.Println("  /sessions          列出历史会话")
+		fmt.Println("  /session <id>      切换到历史会话，如 /session 3")
 		fmt.Println("  /info              显示当前供应商、模型和思考配置")
 		fmt.Println("  /exit              退出")
 	case "/models":
@@ -74,6 +93,40 @@ func (h *Handler) Handle(input string) bool {
 		for _, t := range h.bot.Tools() {
 			fmt.Println("  " + t)
 		}
+	case "/sessions":
+		list, err := store.ListSessions(h.db)
+		if err != nil {
+			fmt.Printf("⚠️  %v\n", err)
+			return true
+		}
+		if len(list) == 0 {
+			fmt.Println("暂无历史会话")
+			return true
+		}
+		for _, s := range list {
+			fmt.Printf("  #%d  %s  (%d 条消息)\n", s.ID, s.CreatedAt.Format("2006-01-02 15:04:05"), s.MessageCount)
+		}
+	case "/session":
+		if len(args) == 0 {
+			fmt.Println("用法: /session <id>，如 /session 3")
+			return true
+		}
+		id, err := strconv.ParseInt(args[0], 10, 64)
+		if err != nil || id <= 0 {
+			fmt.Printf("无效的会话 id: %s\n", args[0])
+			return true
+		}
+		sess, err := store.LoadSession(h.db, id)
+		if err != nil {
+			fmt.Printf("⚠️  %v\n", err)
+			return true
+		}
+		if sess == nil {
+			fmt.Printf("会话 #%d 不存在\n", id)
+			return true
+		}
+		h.bot.RestoreSession(sess)
+		fmt.Printf("已切换到会话 #%d (%d 条消息)\n", id, len(sess.Messages))
 	case "/info":
 		provider, model := h.bot.Current()
 		thinking, effort := h.bot.ThinkingConfig()
@@ -85,6 +138,7 @@ func (h *Handler) Handle(input string) bool {
 			effort = "high(默认)"
 		}
 		fmt.Printf("供应商: %s, 模型: %s, 思考模式: %s, 思考强度: %s\n", provider, model, thinking, effort)
+		fmt.Printf("上下文窗口: %s\n", formatWindow(h.bot.ContextWindow()))
 		fmt.Printf("工具调用AI: %s\n图片识别AI: %s\n", tool, vision)
 	default:
 		fmt.Printf("未知命令: %s，输入 /help 查看命令列表\n", cmd)

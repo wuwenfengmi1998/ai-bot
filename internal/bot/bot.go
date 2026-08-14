@@ -13,6 +13,7 @@ import (
 	"github.com/openai/openai-go/shared/constant"
 	"github.com/tidwall/gjson"
 	"myaibot/internal/config"
+	"myaibot/internal/store"
 	"myaibot/internal/tools"
 	"myaibot/internal/tools/builtin"
 )
@@ -43,7 +44,7 @@ func New(cfg *config.Config) (*Bot, error) {
 		systemPrompt: cfg.SystemPrompt,
 		toolRegistry: tools.NewRegistry(builtin.NewTimeTool(), builtin.NewCalculatorTool(), builtin.NewRandomTool()),
 	}
-	b.provider = config.FindProvider(cfg.DefaultProvider)
+	b.provider = config.FindProviderIn(cfg, cfg.DefaultProvider)
 	b.model = cfg.DefaultModel
 	b.toolProvider, b.toolModel = b.provider, b.model
 	if cfg.ToolModel != "" {
@@ -124,6 +125,62 @@ func (b *Bot) CurrentRoles() (tool, vision string) {
 
 func (b *Bot) Tools() []string {
 	return b.toolRegistry.List()
+}
+
+func (b *Bot) ContextWindow() int64 {
+	if m := config.FindModel(b.provider, b.model); m != nil {
+		return m.ContextWindow
+	}
+	return 0
+}
+
+func (b *Bot) SessionMessages() []store.Message {
+	out := make([]store.Message, 0, len(b.history)+1)
+	out = append(out, store.Message{Role: "system", Content: b.systemPrompt})
+	for _, msg := range b.history {
+		var role, content string
+		switch {
+		case msg.OfUser != nil:
+			role, content = "user", msg.OfUser.Content.OfString.Value
+		case msg.OfAssistant != nil:
+			role, content = "assistant", msg.OfAssistant.Content.OfString.Value
+		case msg.OfSystem != nil:
+			role, content = "system", msg.OfSystem.Content.OfString.Value
+		default:
+			continue
+		}
+		if content == "" {
+			continue
+		}
+		out = append(out, store.Message{Role: role, Content: content})
+	}
+	return out
+}
+
+func (b *Bot) RestoreSession(s *store.Session) {
+	if s == nil {
+		return
+	}
+	if s.SystemPrompt != "" {
+		b.systemPrompt = s.SystemPrompt
+	}
+	var history []openai.ChatCompletionMessageParamUnion
+	for _, m := range s.Messages {
+		switch m.Role {
+		case "user":
+			history = append(history, openai.UserMessage(m.Content))
+		case "assistant":
+			history = append(history, openai.AssistantMessage(m.Content))
+		case "system":
+			if b.systemPrompt == "" || m.Content != b.systemPrompt {
+				b.systemPrompt = m.Content
+			}
+		}
+	}
+	if len(history) > maxHistory {
+		history = history[len(history)-maxHistory:]
+	}
+	b.history = history
 }
 
 func (b *Bot) ContextDump() string {
