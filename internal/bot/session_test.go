@@ -89,11 +89,12 @@ func TestRestoreTrimsHistory(t *testing.T) {
 func TestClearHistory(t *testing.T) {
 	b := newTestBot(t)
 	b.history = append(b.history, openai.UserMessage("hi"))
+	b.systemPrompt = "被会话覆盖的旧提示词"
 	b.ClearHistory()
 	if len(b.history) != 0 {
 		t.Errorf("history 应清空, got %d", len(b.history))
 	}
 	if b.systemPrompt != "测试系统提示" {
-		t.Errorf("systemPrompt 应保留: %q", b.systemPrompt)
+		t.Errorf("systemPrompt 应重置为配置内容, got %q", b.systemPrompt)
 	}
 }

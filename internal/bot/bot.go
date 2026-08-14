@@ -139,9 +139,12 @@ func (b *Bot) Tools() []string {
 	return b.toolRegistry.List()
 }
 
-// ClearHistory 清空内存中的会话历史，开启新对话（系统提示词保留）。
+// ClearHistory 清空内存中的会话历史，开启新对话；系统提示词重置为配置加载的文件内容。
 func (b *Bot) ClearHistory() {
 	b.history = nil
+	if b.cfg != nil {
+		b.systemPrompt = b.cfg.SystemPrompt
+	}
 }
 
 func (b *Bot) ContextWindow() int64 {
