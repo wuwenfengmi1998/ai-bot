@@ -32,6 +32,21 @@ func formatWindow(n int64) string {
 	}
 }
 
+func thousands(n int64) string {
+	s := strconv.FormatInt(n, 10)
+	if len(s) <= 3 {
+		return s
+	}
+	var b strings.Builder
+	for i, c := range s {
+		if i > 0 && (len(s)-i)%3 == 0 {
+			b.WriteByte(',')
+		}
+		b.WriteRune(c)
+	}
+	return b.String()
+}
+
 func (h *Handler) Handle(input string) bool {
 	fields := strings.Fields(input)
 	cmd, args := fields[0], fields[1:]
@@ -89,6 +104,13 @@ func (h *Handler) Handle(input string) bool {
 		fmt.Printf("思考强度已设置为 %s\n", args[0])
 	case "/context":
 		fmt.Print(h.bot.ContextDump())
+		used, total := h.bot.ContextStats()
+		if total <= 0 {
+			fmt.Printf("上下文: 约 %s tokens（窗口大小未配置）\n", thousands(used))
+			return true
+		}
+		pct := float64(used) / float64(total) * 100
+		fmt.Printf("上下文窗口使用: %s / %s tokens (%.2f%%)\n", thousands(used), thousands(total), pct)
 	case "/tools":
 		for _, t := range h.bot.Tools() {
 			fmt.Println("  " + t)

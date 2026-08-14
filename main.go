@@ -8,6 +8,7 @@ import (
 	"io"
 	"log"
 	"os"
+	"path/filepath"
 	"strings"
 
 	"github.com/peterh/liner"
@@ -19,6 +20,7 @@ import (
 )
 
 func main() {
+	os.Setenv("TIKTOKEN_CACHE_DIR", filepath.Join("data", "tiktoken"))
 	cfg, err := config.Load()
 	if err != nil {
 		log.Fatalf("加载配置失败: %v", err)

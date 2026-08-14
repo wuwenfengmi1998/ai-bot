@@ -11,6 +11,7 @@ import (
 	"github.com/openai/openai-go/packages/param"
 	"github.com/openai/openai-go/shared"
 	"github.com/openai/openai-go/shared/constant"
+	"github.com/pkoukk/tiktoken-go"
 	"github.com/tidwall/gjson"
 	"myaibot/internal/config"
 	"myaibot/internal/store"
@@ -132,6 +133,43 @@ func (b *Bot) ContextWindow() int64 {
 		return m.ContextWindow
 	}
 	return 0
+}
+
+// ContextStats 统计当前上下文的 token 使用量与窗口总大小（0 表示未配置）。
+func (b *Bot) ContextStats() (used, total int64) {
+	total = b.ContextWindow()
+	used += estimateTokens(b.systemPrompt)
+	for _, msg := range b.history {
+		var content string
+		switch {
+		case msg.OfUser != nil:
+			content = msg.OfUser.Content.OfString.Value
+		case msg.OfAssistant != nil:
+			content = msg.OfAssistant.Content.OfString.Value
+		case msg.OfSystem != nil:
+			content = msg.OfSystem.Content.OfString.Value
+		}
+		used += estimateTokens(content)
+	}
+	return used, total
+}
+
+var tke *tiktoken.Tiktoken
+
+// estimateTokens 用 o200k_base 词表精确统计 token；
+// 初始化失败（如无法下载词表）时回退为字符数/2 估算。
+func estimateTokens(s string) int64 {
+	if s == "" {
+		return 0
+	}
+	if tke == nil {
+		t, err := tiktoken.GetEncoding("o200k_base")
+		if err != nil {
+			return int64(len([]rune(s)) / 2)
+		}
+		tke = t
+	}
+	return int64(len(tke.Encode(s, nil, nil)))
 }
 
 func (b *Bot) SessionMessages() []store.Message {
