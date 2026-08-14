@@ -31,6 +31,27 @@ func TestEstimateTokensKnown(t *testing.T) {
 	}
 }
 
+func TestTokenize(t *testing.T) {
+	ids := Tokenize("hello hello world")
+	if len(ids) < 2 {
+		t.Errorf("应有多个 token, got %v", ids)
+	}
+	seen := make(map[int64]bool)
+	for _, id := range ids {
+		if seen[id] {
+			t.Errorf("token 应去重: %v", ids)
+		}
+		seen[id] = true
+	}
+	if len(Tokenize("")) != 0 {
+		t.Error("空串应返回空")
+	}
+	chinese := Tokenize("用户喜欢喝咖啡")
+	if len(chinese) == 0 {
+		t.Error("中文文本应产生 token")
+	}
+}
+
 func TestContextStats(t *testing.T) {
 	b := &Bot{
 		systemPrompt: "你是一个乐于助人的 AI 助手。",

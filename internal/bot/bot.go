@@ -171,6 +171,31 @@ func (b *Bot) ContextStats() (used, total int64) {
 
 var tke *tiktoken.Tiktoken
 
+// Tokenize 将文本编码为 o200k_base token id 列表（去重）。
+func Tokenize(text string) []int64 {
+	if text == "" {
+		return nil
+	}
+	if tke == nil {
+		t, err := tiktoken.GetEncoding("o200k_base")
+		if err != nil {
+			return nil
+		}
+		tke = t
+	}
+	seen := make(map[int64]bool)
+	var out []int64
+	for _, id := range tke.Encode(text, nil, nil) {
+		tid := int64(id)
+		if seen[tid] {
+			continue
+		}
+		seen[tid] = true
+		out = append(out, tid)
+	}
+	return out
+}
+
 // estimateTokens 用 o200k_base 词表精确统计 token；
 // 初始化失败（如无法下载词表）时回退为字符数/2 估算。
 func estimateTokens(s string) int64 {

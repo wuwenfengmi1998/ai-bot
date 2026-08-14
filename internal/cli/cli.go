@@ -40,6 +40,36 @@ func (h *Handler) saveSessionAndReset() {
 	fmt.Printf("💾 会话已存档 (%d 条消息)，已开启新对话\n", len(msgs))
 }
 
+// indexMemories 为新记忆及历史未索引记忆建立 token 搜索索引（幂等）。
+func (h *Handler) indexMemories(newIDs []int64) error {
+	oldIDs, err := store.UnindexedMemoryIDs(h.db)
+	if err != nil {
+		return fmt.Errorf("查询未索引记忆失败: %w", err)
+	}
+	seen := make(map[int64]bool, len(newIDs)+len(oldIDs))
+	var ids []int64
+	for _, id := range append(newIDs, oldIDs...) {
+		if !seen[id] {
+			seen[id] = true
+			ids = append(ids, id)
+		}
+	}
+	for _, id := range ids {
+		m, err := store.LoadMemory(h.db, id)
+		if err != nil {
+			return fmt.Errorf("读取记忆 #%d 失败: %w", id, err)
+		}
+		if m == nil {
+			continue
+		}
+		if err := store.SaveMemoryTokens(h.db, id, bot.Tokenize(m.Content)); err != nil {
+			return fmt.Errorf("记忆 #%d 建索引失败: %w", id, err)
+		}
+	}
+	fmt.Printf("🔗 已建立搜索索引 (%d 条记忆)\n", len(ids))
+	return nil
+}
+
 func formatWindow(n int64) string {
 	switch {
 	case n <= 0:
@@ -162,16 +192,20 @@ func (h *Handler) Handle(input string) bool {
 		}
 		if len(ms) == 0 {
 			fmt.Println("🧠 没有新的记忆")
-			h.saveSessionAndReset()
-			return true
-		}
-		if _, err := store.SaveMemories(h.db, ms); err != nil {
-			fmt.Printf("⚠️  %v\n", err)
-			return true
-		}
-		fmt.Printf("🧠 已提取 %d 条新记忆\n", len(ms))
-		for _, m := range ms {
-			fmt.Printf("  [%s %d] %s\n", m.Category, m.Importance, m.Content)
+		} else {
+			ids, err := store.SaveMemories(h.db, ms)
+			if err != nil {
+				fmt.Printf("⚠️  %v\n", err)
+				return true
+			}
+			fmt.Printf("🧠 已提取 %d 条新记忆\n", len(ms))
+			for _, m := range ms {
+				fmt.Printf("  [%s %d] %s\n", m.Category, m.Importance, m.Content)
+			}
+			if err := h.indexMemories(ids); err != nil {
+				fmt.Printf("⚠️  %v\n", err)
+				return true
+			}
 		}
 		h.saveSessionAndReset()
 	case "/forge":
