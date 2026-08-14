@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strings"
 
 	"github.com/openai/openai-go"
 	"github.com/openai/openai-go/option"
@@ -81,6 +82,27 @@ func (b *Bot) SetEffort(v string) error {
 
 func (b *Bot) ThinkingConfig() (string, string) {
 	return b.provider.Thinking, b.provider.ReasoningEffort
+}
+
+func (b *Bot) ContextDump() string {
+	var sb strings.Builder
+	sb.WriteString("[系统] " + b.systemPrompt + "\n")
+	for i, msg := range b.history {
+		role, content := "", ""
+		switch {
+		case msg.OfUser != nil:
+			role, content = "用户", msg.OfUser.Content.OfString.Value
+		case msg.OfAssistant != nil:
+			role, content = "机器人", msg.OfAssistant.Content.OfString.Value
+		case msg.OfSystem != nil:
+			role, content = "系统", msg.OfSystem.Content.OfString.Value
+		}
+		if content == "" {
+			content = "[多模态内容]"
+		}
+		sb.WriteString(fmt.Sprintf("[%d] %s: %s\n", i+1, role, content))
+	}
+	return sb.String()
 }
 
 func (b *Bot) Chat(ctx context.Context, userMsg string, onReasoning, onContent func(string)) (string, error) {

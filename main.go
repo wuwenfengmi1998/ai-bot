@@ -1,14 +1,17 @@
 package main
 
 import (
-	"bufio"
 	"context"
+	"errors"
 	"fmt"
+	"io"
 	"log"
-	"os"
 	"strings"
 
+	"github.com/peterh/liner"
+
 	"myaibot/internal/bot"
+	"myaibot/internal/cli"
 	"myaibot/internal/config"
 )
 
@@ -22,18 +25,27 @@ func main() {
 	fmt.Printf("🤖 %s 已启动 (供应商: %s, 模型: %s)。输入问题开始对话，输入 /help 查看命令。\n",
 		cfg.BotName, provider, model)
 
-	scanner := bufio.NewScanner(os.Stdin)
+	line := liner.NewLiner()
+	defer line.Close()
+	line.SetCtrlCAborts(true)
+	line.SetCompleter(func(s string) []string {
+		return cli.Complete(s, b.Models())
+	})
+
+	h := cli.New(b)
 	for {
-		fmt.Print("你: ")
-		if !scanner.Scan() {
+		input, err := line.Prompt("你: ")
+		if errors.Is(err, io.EOF) || errors.Is(err, liner.ErrPromptAborted) {
+			fmt.Println("再见！")
 			break
 		}
-		input := strings.TrimSpace(scanner.Text())
+		input = strings.TrimSpace(input)
 		if input == "" {
 			continue
 		}
+		line.AppendHistory(input)
 		if strings.HasPrefix(input, "/") {
-			if !handleCommand(b, input) {
+			if !h.Handle(input) {
 				break
 			}
 			continue
@@ -62,74 +74,4 @@ func main() {
 			continue
 		}
 	}
-	if err := scanner.Err(); err != nil {
-		log.Fatal(err)
-	}
-}
-
-func handleCommand(b *bot.Bot, input string) bool {
-	fields := strings.Fields(input)
-	cmd, args := fields[0], fields[1:]
-	switch cmd {
-	case "/exit", "/quit":
-		fmt.Println("再见！")
-		return false
-	case "/help":
-		fmt.Println("命令列表:")
-		fmt.Println("  /models            列出所有供应商和模型")
-		fmt.Println("  /use <模型>        切换模型，如 /use deepseek-chat 或 /use deepseek/deepseek-chat")
-		fmt.Println("  /think <on|off>    开启或关闭当前供应商的思考模式")
-		fmt.Println("  /effort <low|high|max>  设置思考强度")
-		fmt.Println("  /info              显示当前供应商、模型和思考配置")
-		fmt.Println("  /exit              退出")
-	case "/models":
-		for _, m := range b.Models() {
-			fmt.Println("  " + m)
-		}
-	case "/use":
-		if len(args) == 0 {
-			fmt.Println("用法: /use <模型>，如 /use deepseek-chat")
-			return true
-		}
-		if err := b.SwitchModel(args[0]); err != nil {
-			fmt.Printf("⚠️  %v\n", err)
-			return true
-		}
-		provider, model := b.Current()
-		fmt.Printf("已切换到 %s/%s (对话历史已保留)\n", provider, model)
-	case "/think":
-		if len(args) == 0 {
-			fmt.Println("用法: /think <on|off>")
-			return true
-		}
-		v := map[string]string{"on": "enabled", "off": "disabled"}[args[0]]
-		if err := b.SetThinking(v); err != nil {
-			fmt.Printf("⚠️  %v\n", err)
-			return true
-		}
-		fmt.Printf("思考模式已%s\n", map[string]string{"enabled": "开启", "disabled": "关闭"}[v])
-	case "/effort":
-		if len(args) == 0 {
-			fmt.Println("用法: /effort <low|high|max>")
-			return true
-		}
-		if err := b.SetEffort(args[0]); err != nil {
-			fmt.Printf("⚠️  %v\n", err)
-			return true
-		}
-		fmt.Printf("思考强度已设置为 %s\n", args[0])
-	case "/info":
-		provider, model := b.Current()
-		thinking, effort := b.ThinkingConfig()
-		if thinking == "" {
-			thinking = "enabled(默认)"
-		}
-		if effort == "" {
-			effort = "high(默认)"
-		}
-		fmt.Printf("供应商: %s, 模型: %s, 思考模式: %s, 思考强度: %s\n", provider, model, thinking, effort)
-	default:
-		fmt.Printf("未知命令: %s，输入 /help 查看命令列表\n", cmd)
-	}
-	return true
 }
