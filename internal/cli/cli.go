@@ -72,6 +72,7 @@ func (h *Handler) Handle(input string) bool {
 	case "/info":
 		provider, model := h.bot.Current()
 		thinking, effort := h.bot.ThinkingConfig()
+		tool, vision := h.bot.CurrentRoles()
 		if thinking == "" {
 			thinking = "enabled(默认)"
 		}
@@ -79,6 +80,7 @@ func (h *Handler) Handle(input string) bool {
 			effort = "high(默认)"
 		}
 		fmt.Printf("供应商: %s, 模型: %s, 思考模式: %s, 思考强度: %s\n", provider, model, thinking, effort)
+		fmt.Printf("工具调用AI: %s\n图片识别AI: %s\n", tool, vision)
 	default:
 		fmt.Printf("未知命令: %s，输入 /help 查看命令列表\n", cmd)
 	}

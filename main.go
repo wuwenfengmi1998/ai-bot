@@ -67,6 +67,20 @@ func main() {
 				}
 				fmt.Print(text)
 			},
+			func(name, args string) {
+				if resetStyle {
+					fmt.Print("\x1b[0m")
+					thinkStyle, resetStyle = false, false
+				}
+				fmt.Printf("🔧 调用工具: %s %s\n", name, args)
+			},
+			func(text string) {
+				if !thinkStyle {
+					fmt.Print("\x1b[3;90m🔧 ")
+					thinkStyle, resetStyle = true, true
+				}
+				fmt.Print(text)
+			},
 		)
 		fmt.Println()
 		if err != nil {

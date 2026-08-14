@@ -32,6 +32,8 @@ type Config struct {
 	Providers       []Provider `yaml:"providers"`
 	DefaultProvider string     `yaml:"default_provider"`
 	DefaultModel    string     `yaml:"default_model"`
+	ToolModel       string     `yaml:"tool_model"`
+	VisionModel     string     `yaml:"vision_model"`
 }
 
 type legacyConfig struct {
@@ -160,6 +162,16 @@ func validate(c *Config) error {
 	}
 	if _, _, err := ResolveModel(c.DefaultModel); err != nil {
 		return fmt.Errorf("default_model 无效: %w", err)
+	}
+	if c.ToolModel != "" {
+		if _, _, err := ResolveModel(c.ToolModel); err != nil {
+			return fmt.Errorf("tool_model 无效: %w", err)
+		}
+	}
+	if c.VisionModel != "" {
+		if _, _, err := ResolveModel(c.VisionModel); err != nil {
+			return fmt.Errorf("vision_model 无效: %w", err)
+		}
 	}
 	return nil
 }
