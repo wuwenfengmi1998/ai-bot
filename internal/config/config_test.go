@@ -24,7 +24,6 @@ func TestApplyDatabaseDefaults(t *testing.T) {
 func TestApplyDefaultsNoChange(t *testing.T) {
 	c := &Config{
 		BotName:         "x",
-		Port:            8081,
 		LogLevel:        "debug",
 		SystemPrompt:    "sp",
 		DefaultProvider: "p",
@@ -110,6 +109,64 @@ func TestLoadNoRewriteWhenComplete(t *testing.T) {
 	info, _ = os.Stat(path)
 	if !info.ModTime().Equal(before) {
 		t.Error("完整配置不应重复写回文件")
+	}
+}
+
+func TestLoadSystemPromptCreatesDefault(t *testing.T) {
+	t.Chdir(t.TempDir())
+	prompt, err := LoadSystemPrompt()
+	if err != nil {
+		t.Fatalf("LoadSystemPrompt 出错: %v", err)
+	}
+	if prompt != defaultSystemPrompt {
+		t.Errorf("默认提示词 = %q, want %q", prompt, defaultSystemPrompt)
+	}
+	data, err := os.ReadFile(systemPromptFile)
+	if err != nil {
+		t.Fatalf("默认文件未创建: %v", err)
+	}
+	if string(data) != defaultSystemPrompt {
+		t.Errorf("文件内容 = %q", string(data))
+	}
+}
+
+func TestLoadSystemPromptReadsExisting(t *testing.T) {
+	t.Chdir(t.TempDir())
+	if err := os.MkdirAll("data", 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(systemPromptFile, []byte("自定义提示词\n多行"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	prompt, err := LoadSystemPrompt()
+	if err != nil {
+		t.Fatalf("LoadSystemPrompt 出错: %v", err)
+	}
+	if prompt != "自定义提示词\n多行" {
+		t.Errorf("应返回文件内容: %q", prompt)
+	}
+}
+
+func TestLoadWritesBackExcludesSystemPrompt(t *testing.T) {
+	t.Chdir(t.TempDir())
+	cfg = nil
+	path := filepath.Join("data", "config.yaml")
+	old := "bot_name: test-bot\nsystem_prompt: 旧值\ndefault_provider: deepseek\ndefault_model: deepseek-v4-flash\nproviders:\n    - name: deepseek\n      base_url: https://api.deepseek.com\n      models:\n        - deepseek-v4-flash\n"
+	if err := os.MkdirAll("data", 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, []byte(old), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Load(); err != nil {
+		t.Fatalf("Load 出错: %v", err)
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(data), "system_prompt") {
+		t.Errorf("写回的配置不应包含 system_prompt:\n%s", data)
 	}
 }
 

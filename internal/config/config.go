@@ -15,9 +15,11 @@ import (
 )
 
 const (
-	configDir     = "data"
-	configFile    = "config.yaml"
-	toolConfigDir = "data/tools"
+	configDir           = "data"
+	configFile          = "config.yaml"
+	toolConfigDir       = "data/tools"
+	systemPromptFile    = "data/system_prompt.md"
+	defaultSystemPrompt = "你是一个乐于助人的 AI 助手。"
 )
 
 type ModelConfig struct {
@@ -61,9 +63,8 @@ type Provider struct {
 
 type Config struct {
 	BotName         string         `yaml:"bot_name"`
-	Port            int            `yaml:"port"`
 	LogLevel        string         `yaml:"log_level"`
-	SystemPrompt    string         `yaml:"system_prompt"`
+	SystemPrompt    string         `yaml:"-"` // 来源：data/system_prompt.md，不写入 yaml
 	Providers       []Provider     `yaml:"providers"`
 	DefaultProvider string         `yaml:"default_provider"`
 	DefaultModel    string         `yaml:"default_model"`
@@ -126,7 +127,35 @@ func Load() (*Config, error) {
 			return nil, err
 		}
 	}
+	prompt, err := LoadSystemPrompt()
+	if err != nil {
+		return nil, err
+	}
+	cfg.SystemPrompt = prompt
 	return cfg, nil
+}
+
+// LoadSystemPrompt 读取 data/system_prompt.md；文件不存在时创建默认内容。
+func LoadSystemPrompt() (string, error) {
+	data, err := os.ReadFile(systemPromptFile)
+	if err == nil {
+		return string(data), nil
+	}
+	if !os.IsNotExist(err) {
+		return "", fmt.Errorf("读取系统提示词失败: %w", err)
+	}
+	if err := os.MkdirAll(configDir, 0o755); err != nil {
+		return "", err
+	}
+	if err := os.WriteFile(systemPromptFile, []byte(defaultSystemPrompt), 0o644); err != nil {
+		return "", fmt.Errorf("创建系统提示词文件失败: %w", err)
+	}
+	return defaultSystemPrompt, nil
+}
+
+// SystemPromptPath 返回系统提示词文件的路径。
+func SystemPromptPath() string {
+	return systemPromptFile
 }
 
 func GetConfig() *Config {
@@ -164,16 +193,8 @@ func applyDefaults(c *Config) (changed bool) {
 		c.BotName = "ai-bot"
 		changed = true
 	}
-	if c.Port == 0 {
-		c.Port = 8080
-		changed = true
-	}
 	if c.LogLevel == "" {
 		c.LogLevel = "info"
-		changed = true
-	}
-	if c.SystemPrompt == "" {
-		c.SystemPrompt = "你是一个乐于助人的 AI 助手。"
 		changed = true
 	}
 	if c.DefaultProvider == "" && len(c.Providers) > 0 {
@@ -360,10 +381,8 @@ func contains(list []string, s string) bool {
 
 func writeDefault(path string) error {
 	cfg = &Config{
-		BotName:      "ai-bot",
-		Port:         8080,
-		LogLevel:     "info",
-		SystemPrompt: "你是一个乐于助人的 AI 助手。",
+		BotName:  "ai-bot",
+		LogLevel: "info",
 		Providers: []Provider{
 			{
 				Name:    "openai",
