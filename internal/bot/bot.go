@@ -14,6 +14,7 @@ import (
 	"github.com/tidwall/gjson"
 	"myaibot/internal/config"
 	"myaibot/internal/tools"
+	"myaibot/internal/tools/builtin"
 )
 
 const (
@@ -21,7 +22,7 @@ const (
 	maxToolRounds = 5
 )
 
-var toolRegistry = tools.NewRegistry(tools.TimeTool{}, tools.CalculatorTool{}, tools.RandomTool{})
+var toolRegistry = tools.NewRegistry(builtin.TimeTool{}, builtin.CalculatorTool{}, builtin.RandomTool{})
 
 type Bot struct {
 	clients        map[string]*openai.Client
