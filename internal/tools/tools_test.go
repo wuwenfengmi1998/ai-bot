@@ -84,4 +84,14 @@ func TestRegistry(t *testing.T) {
 	if _, err := r.Execute("nonexistent", nil); err == nil {
 		t.Error("执行未知工具应返回错误")
 	}
+	list := r.List()
+	if len(list) != 3 {
+		t.Fatalf("List 数量 = %d, want 3", len(list))
+	}
+	wantOrder := []string{"calculate", "get_current_time", "random_number"}
+	for i, want := range wantOrder {
+		if !strings.HasPrefix(list[i], want+" - ") {
+			t.Errorf("List[%d] = %q, want 前缀 %q", i, list[i], want+" - ")
+		}
+	}
 }

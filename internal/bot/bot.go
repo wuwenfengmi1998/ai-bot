@@ -118,6 +118,10 @@ func (b *Bot) CurrentRoles() (tool, vision string) {
 		b.visionProvider.Name + "/" + b.visionModel
 }
 
+func (b *Bot) Tools() []string {
+	return toolRegistry.List()
+}
+
 func (b *Bot) ContextDump() string {
 	var sb strings.Builder
 	sb.WriteString("[系统] " + b.systemPrompt + "\n")

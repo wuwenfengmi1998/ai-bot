@@ -29,6 +29,7 @@ func (h *Handler) Handle(input string) bool {
 		fmt.Println("  /think <on|off>    开启或关闭当前供应商的思考模式")
 		fmt.Println("  /effort <low|high|max>  设置思考强度")
 		fmt.Println("  /context           打印当前聊天上下文")
+		fmt.Println("  /tools             列出可用工具")
 		fmt.Println("  /info              显示当前供应商、模型和思考配置")
 		fmt.Println("  /exit              退出")
 	case "/models":
@@ -69,6 +70,10 @@ func (h *Handler) Handle(input string) bool {
 		fmt.Printf("思考强度已设置为 %s\n", args[0])
 	case "/context":
 		fmt.Print(h.bot.ContextDump())
+	case "/tools":
+		for _, t := range h.bot.Tools() {
+			fmt.Println("  " + t)
+		}
 	case "/info":
 		provider, model := h.bot.Current()
 		thinking, effort := h.bot.ThinkingConfig()

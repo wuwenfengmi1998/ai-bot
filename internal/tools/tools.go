@@ -3,6 +3,7 @@ package tools
 import (
 	"encoding/json"
 	"fmt"
+	"sort"
 
 	"github.com/openai/openai-go"
 	"github.com/openai/openai-go/packages/param"
@@ -31,6 +32,19 @@ func NewRegistry(t ...Tool) *Registry {
 func (r *Registry) Get(name string) (Tool, bool) {
 	t, ok := r.tools[name]
 	return t, ok
+}
+
+func (r *Registry) List() []string {
+	names := make([]string, 0, len(r.tools))
+	for name := range r.tools {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	out := make([]string, 0, len(names))
+	for _, name := range names {
+		out = append(out, fmt.Sprintf("%s - %s", name, r.tools[name].Description()))
+	}
+	return out
 }
 
 func (r *Registry) ParamList() []openai.ChatCompletionToolParam {
