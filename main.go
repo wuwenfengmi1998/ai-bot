@@ -14,6 +14,7 @@ import (
 	"myaibot/internal/bot"
 	"myaibot/internal/cli"
 	"myaibot/internal/config"
+	"myaibot/internal/store"
 )
 
 func main() {
@@ -21,6 +22,13 @@ func main() {
 	if err != nil {
 		log.Fatalf("加载配置失败: %v", err)
 	}
+	db, err := store.Open(&cfg.Database)
+	if err != nil {
+		log.Fatalf("数据库连接失败: %v", err)
+	}
+	defer store.Close(db)
+	fmt.Printf("💾 数据库已连接 (%s)\n", cfg.Database.Driver)
+
 	b, err := bot.New(cfg)
 	if err != nil {
 		fmt.Printf("⚠️  %v\n", err)

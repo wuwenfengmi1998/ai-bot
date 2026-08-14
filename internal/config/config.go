@@ -26,15 +26,26 @@ type Provider struct {
 }
 
 type Config struct {
-	BotName         string     `yaml:"bot_name"`
-	Port            int        `yaml:"port"`
-	LogLevel        string     `yaml:"log_level"`
-	SystemPrompt    string     `yaml:"system_prompt"`
-	Providers       []Provider `yaml:"providers"`
-	DefaultProvider string     `yaml:"default_provider"`
-	DefaultModel    string     `yaml:"default_model"`
-	ToolModel       string     `yaml:"tool_model"`
-	VisionModel     string     `yaml:"vision_model"`
+	BotName         string         `yaml:"bot_name"`
+	Port            int            `yaml:"port"`
+	LogLevel        string         `yaml:"log_level"`
+	SystemPrompt    string         `yaml:"system_prompt"`
+	Providers       []Provider     `yaml:"providers"`
+	DefaultProvider string         `yaml:"default_provider"`
+	DefaultModel    string         `yaml:"default_model"`
+	ToolModel       string         `yaml:"tool_model"`
+	VisionModel     string         `yaml:"vision_model"`
+	Database        DatabaseConfig `yaml:"database"`
+}
+
+type DatabaseConfig struct {
+	Driver   string `yaml:"driver"`
+	File     string `yaml:"file"`
+	Host     string `yaml:"host"`
+	Port     int    `yaml:"port"`
+	User     string `yaml:"user"`
+	Password string `yaml:"password"`
+	Name     string `yaml:"name"`
 }
 
 type legacyConfig struct {
@@ -124,6 +135,20 @@ func applyDefaults(c *Config) {
 	if c.DefaultProvider == "" && len(c.Providers) > 0 {
 		c.DefaultProvider = c.Providers[0].Name
 	}
+	if c.Database.Driver == "" {
+		c.Database.Driver = "sqlite3"
+	}
+	if c.Database.File == "" {
+		c.Database.File = "data/memory.db"
+	}
+	if c.Database.Driver == "mysql" {
+		if c.Database.Host == "" {
+			c.Database.Host = "127.0.0.1"
+		}
+		if c.Database.Port == 0 {
+			c.Database.Port = 3306
+		}
+	}
 }
 
 func validate(c *Config) error {
@@ -173,6 +198,13 @@ func validate(c *Config) error {
 		if _, _, err := ResolveModel(c.VisionModel); err != nil {
 			return fmt.Errorf("vision_model 无效: %w", err)
 		}
+	}
+	d := c.Database
+	if !contains([]string{"sqlite3", "mysql"}, d.Driver) {
+		return fmt.Errorf("database.driver 无效: %q（可选 sqlite3/mysql）", d.Driver)
+	}
+	if d.Driver == "mysql" && d.Name == "" {
+		return errors.New("mysql 需要配置 database.name")
 	}
 	return nil
 }
@@ -257,6 +289,14 @@ func writeDefault(path string) error {
 		},
 		DefaultProvider: "openai",
 		DefaultModel:    "gpt-4o-mini",
+		Database: DatabaseConfig{
+			Driver: "sqlite3",
+			File:   "data/memory.db",
+			Host:   "127.0.0.1",
+			Port:   3306,
+			User:   "root",
+			Name:   "memory",
+		},
 	}
 	if err := validate(cfg); err != nil {
 		return err
