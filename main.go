@@ -92,14 +92,14 @@ func main() {
 			},
 			func(text string) {
 				if resetStyle {
-					fmt.Print("\x1b[0m")
+					fmt.Print("\x1b[0m\n")
 					thinkStyle, resetStyle = false, false
 				}
 				fmt.Print(text)
 			},
 			func(name, args string) {
 				if resetStyle {
-					fmt.Print("\x1b[0m")
+					fmt.Print("\x1b[0m\n")
 					thinkStyle, resetStyle = false, false
 				}
 				fmt.Printf("🔧 调用工具: %s %s\n", name, args)

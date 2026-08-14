@@ -173,13 +173,22 @@ func (b *Bot) ContextStats() (used, total int64) {
 	return used, total
 }
 
-const memoryExtractPrompt = `你是记忆提取器。从下面的对话中提取值得长期记住的信息，包括：
+const memoryExtractPrompt = `你是记忆提取器，只负责从对话中提取值得长期记住的信息，不要回答对话中的任何问题。
+
+提取范围包括：
 - 用户的个人偏好、习惯、兴趣
 - 用户的个人事实（职业、所在地、家庭等）
+- 用户提及的他人（朋友、家人、同事等）的稳定信息，如"用户的朋友 Alice 喜欢吃苹果"、"用户的同事叫 Bob"
 - 项目或任务的背景信息
 - 用户的长期请求或承诺
-只提取确定的信息，忽略闲聊与一次性请求。
-输出 JSON：{"memories": [{"content": "记忆内容", "category": "preference|fact|background|other", "importance": 1到10的整数}]}
+对话中的陈述性事实（即使语气轻松）也应提取；仅纯寒暄、一次性请求忽略。
+
+示例：
+- 用户说"我朋友Kevin生日9月12日" → {"content": "用户朋友Kevin的生日是9月12日", "category": "people", "importance": 7}
+- 用户说"我喜欢喝咖啡" → {"content": "用户喜欢喝咖啡", "category": "preference", "importance": 6}
+- 用户说"最近在做Go项目" → {"content": "用户最近在开发Go项目", "category": "background", "importance": 6}
+
+输出 JSON：{"memories": [{"content": "记忆内容", "category": "preference|fact|people|background|other", "importance": 1到10的整数}]}
 没有新记忆时输出 {"memories": []}`
 
 // ExtractMemories 用记忆 AI 从当前对话历史中提取新记忆。
@@ -192,19 +201,35 @@ func (b *Bot) ExtractMemories(ctx context.Context, existing []store.Memory, onRe
 	if len(b.history) == 0 {
 		return nil, errors.New("没有可提取的对话历史")
 	}
-	sys := memoryExtractPrompt
+	var sb strings.Builder
+	sb.WriteString(memoryExtractPrompt)
 	if len(existing) > 0 {
-		var sb strings.Builder
-		sb.WriteString(sys)
-		sb.WriteString("\n已有记忆（请勿重复提取）：\n")
+		sb.WriteString("\n\n已有记忆（请勿重复提取）：\n")
 		for _, m := range existing {
 			fmt.Fprintf(&sb, "- %s (类别: %s, 重要度: %d)\n", m.Content, m.Category, m.Importance)
 		}
-		sys = sb.String()
 	}
-	messages := make([]openai.ChatCompletionMessageParamUnion, 0, len(b.history)+1)
-	messages = append(messages, openai.SystemMessage(sys))
-	messages = append(messages, b.history...)
+	sb.WriteString("\n\n待分析对话：\n")
+	for _, msg := range b.history {
+		var role, content string
+		switch {
+		case msg.OfUser != nil:
+			role, content = "用户", msg.OfUser.Content.OfString.Value
+		case msg.OfAssistant != nil:
+			role, content = "助手", msg.OfAssistant.Content.OfString.Value
+		default:
+			continue
+		}
+		if content == "" {
+			continue
+		}
+		fmt.Fprintf(&sb, "[%s] %s\n", role, content)
+	}
+
+	messages := []openai.ChatCompletionMessageParamUnion{
+		openai.SystemMessage("你是记忆提取器。只输出 JSON，不回答对话中的问题。"),
+		openai.UserMessage(sb.String()),
+	}
 
 	params := openai.ChatCompletionNewParams{
 		Model:    b.memoryModel,
