@@ -82,9 +82,14 @@ func Load() (*Config, error) {
 			return nil, err
 		}
 	}
-	applyDefaults(cfg)
+	changed := applyDefaults(cfg)
 	if err := validate(cfg); err != nil {
 		return nil, err
+	}
+	if changed {
+		if err := writeFile(path, cfg); err != nil {
+			return nil, err
+		}
 	}
 	return cfg, nil
 }
@@ -119,36 +124,46 @@ func migrateLegacy(path string, data []byte) error {
 	return writeFile(path, cfg)
 }
 
-func applyDefaults(c *Config) {
+func applyDefaults(c *Config) (changed bool) {
 	if c.BotName == "" {
 		c.BotName = "ai-bot"
+		changed = true
 	}
 	if c.Port == 0 {
 		c.Port = 8080
+		changed = true
 	}
 	if c.LogLevel == "" {
 		c.LogLevel = "info"
+		changed = true
 	}
 	if c.SystemPrompt == "" {
 		c.SystemPrompt = "你是一个乐于助人的 AI 助手。"
+		changed = true
 	}
 	if c.DefaultProvider == "" && len(c.Providers) > 0 {
 		c.DefaultProvider = c.Providers[0].Name
+		changed = true
 	}
 	if c.Database.Driver == "" {
 		c.Database.Driver = "sqlite3"
+		changed = true
 	}
 	if c.Database.File == "" {
 		c.Database.File = "data/memory.db"
+		changed = true
 	}
 	if c.Database.Driver == "mysql" {
 		if c.Database.Host == "" {
 			c.Database.Host = "127.0.0.1"
+			changed = true
 		}
 		if c.Database.Port == 0 {
 			c.Database.Port = 3306
+			changed = true
 		}
 	}
+	return changed
 }
 
 func validate(c *Config) error {
