@@ -62,7 +62,7 @@ func Migrate(db *sql.DB, driver string) error {
 	if _, err := db.Exec(ddl); err != nil {
 		return fmt.Errorf("创建 sessions 表失败: %w", err)
 	}
-	return nil
+	return migrateMemories(db, driver)
 }
 
 func SaveSession(db *sql.DB, s *Session) (int64, error) {

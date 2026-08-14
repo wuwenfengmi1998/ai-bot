@@ -69,6 +69,7 @@ type Config struct {
 	DefaultModel    string         `yaml:"default_model"`
 	ToolModel       string         `yaml:"tool_model"`
 	VisionModel     string         `yaml:"vision_model"`
+	MemoryModel     string         `yaml:"memory_model"`
 	Database        DatabaseConfig `yaml:"database"`
 }
 
@@ -248,6 +249,11 @@ func validate(c *Config) error {
 	}
 	if c.VisionModel != "" {
 		if err := validateModelRef("vision_model", c.VisionModel, c); err != nil {
+			return err
+		}
+	}
+	if c.MemoryModel != "" {
+		if err := validateModelRef("memory_model", c.MemoryModel, c); err != nil {
 			return err
 		}
 	}

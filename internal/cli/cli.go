@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"context"
 	"database/sql"
 	"fmt"
 	"strconv"
@@ -62,6 +63,8 @@ func (h *Handler) Handle(input string) bool {
 		fmt.Println("  /effort <low|high|max>  设置思考强度")
 		fmt.Println("  /context           打印当前聊天上下文")
 		fmt.Println("  /tools             列出可用工具")
+		fmt.Println("  /dream             从对话中提取长期记忆")
+		fmt.Println("  /memories          列出已提取的记忆")
 		fmt.Println("  /sessions          列出历史会话")
 		fmt.Println("  /session <id>      切换到历史会话，如 /session 3")
 		fmt.Println("  /info              显示当前供应商、模型和思考配置")
@@ -115,6 +118,52 @@ func (h *Handler) Handle(input string) bool {
 		for _, t := range h.bot.Tools() {
 			fmt.Println("  " + t)
 		}
+	case "/dream":
+		existing, err := store.ListMemories(h.db)
+		if err != nil {
+			fmt.Printf("⚠️  %v\n", err)
+			return true
+		}
+		thinkStyle := false
+		ms, err := h.bot.ExtractMemories(context.Background(), existing, func(text string) {
+			if !thinkStyle {
+				fmt.Print("\x1b[3;90m🧠 ")
+				thinkStyle = true
+			}
+			fmt.Print(text)
+		})
+		if thinkStyle {
+			fmt.Print("\x1b[0m\n")
+		}
+		if err != nil {
+			fmt.Printf("⚠️  %v\n", err)
+			return true
+		}
+		if len(ms) == 0 {
+			fmt.Println("🧠 没有新的记忆")
+			return true
+		}
+		if _, err := store.SaveMemories(h.db, ms); err != nil {
+			fmt.Printf("⚠️  %v\n", err)
+			return true
+		}
+		fmt.Printf("🧠 已提取 %d 条新记忆\n", len(ms))
+		for _, m := range ms {
+			fmt.Printf("  [%s %d] %s\n", m.Category, m.Importance, m.Content)
+		}
+	case "/memories":
+		list, err := store.ListMemories(h.db)
+		if err != nil {
+			fmt.Printf("⚠️  %v\n", err)
+			return true
+		}
+		if len(list) == 0 {
+			fmt.Println("暂无已提取的记忆")
+			return true
+		}
+		for _, m := range list {
+			fmt.Printf("  #%d %s [%s %d] %s\n", m.ID, m.CreatedAt.Format("2006-01-02 15:04"), m.Category, m.Importance, m.Content)
+		}
 	case "/sessions":
 		list, err := store.ListSessions(h.db)
 		if err != nil {
@@ -152,7 +201,7 @@ func (h *Handler) Handle(input string) bool {
 	case "/info":
 		provider, model := h.bot.Current()
 		thinking, effort := h.bot.ThinkingConfig()
-		tool, vision := h.bot.CurrentRoles()
+		tool, vision, memory := h.bot.CurrentRoles()
 		if thinking == "" {
 			thinking = "enabled(默认)"
 		}
@@ -161,7 +210,7 @@ func (h *Handler) Handle(input string) bool {
 		}
 		fmt.Printf("供应商: %s, 模型: %s, 思考模式: %s, 思考强度: %s\n", provider, model, thinking, effort)
 		fmt.Printf("上下文窗口: %s\n", formatWindow(h.bot.ContextWindow()))
-		fmt.Printf("工具调用AI: %s\n图片识别AI: %s\n", tool, vision)
+		fmt.Printf("工具调用AI: %s\n图片识别AI: %s\n记忆AI: %s\n", tool, vision, memory)
 	default:
 		fmt.Printf("未知命令: %s，输入 /help 查看命令列表\n", cmd)
 	}

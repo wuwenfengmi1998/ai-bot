@@ -3,6 +3,7 @@ package bot
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strings"
 
@@ -33,6 +34,8 @@ type Bot struct {
 	toolModel      string
 	visionProvider *config.Provider
 	visionModel    string
+	memoryProvider *config.Provider
+	memoryModel    string
 	history        []openai.ChatCompletionMessageParamUnion
 	systemPrompt   string
 	toolRegistry   *tools.Registry
@@ -57,6 +60,12 @@ func New(cfg *config.Config) (*Bot, error) {
 	if cfg.VisionModel != "" {
 		if p, m, err := config.ResolveModel(cfg.VisionModel); err == nil {
 			b.visionProvider, b.visionModel = p, m
+		}
+	}
+	b.memoryProvider, b.memoryModel = b.provider, b.model
+	if cfg.MemoryModel != "" {
+		if p, m, err := config.ResolveModel(cfg.MemoryModel); err == nil {
+			b.memoryProvider, b.memoryModel = p, m
 		}
 	}
 	if err := b.toolRegistry.InitConfigs(); err != nil {
@@ -119,9 +128,10 @@ func (b *Bot) ThinkingConfig() (string, string) {
 	return b.provider.Thinking, b.provider.ReasoningEffort
 }
 
-func (b *Bot) CurrentRoles() (tool, vision string) {
+func (b *Bot) CurrentRoles() (tool, vision, memory string) {
 	return b.toolProvider.Name + "/" + b.toolModel,
-		b.visionProvider.Name + "/" + b.visionModel
+		b.visionProvider.Name + "/" + b.visionModel,
+		b.memoryProvider.Name + "/" + b.memoryModel
 }
 
 func (b *Bot) Tools() []string {
@@ -170,6 +180,93 @@ func estimateTokens(s string) int64 {
 		tke = t
 	}
 	return int64(len(tke.Encode(s, nil, nil)))
+}
+
+const memoryExtractPrompt = `你是记忆提取器。从下面的对话中提取值得长期记住的信息，包括：
+- 用户的个人偏好、习惯、兴趣
+- 用户的个人事实（职业、所在地、家庭等）
+- 项目或任务的背景信息
+- 用户的长期请求或承诺
+只提取确定的信息，忽略闲聊与一次性请求。
+输出 JSON：{"memories": [{"content": "记忆内容", "category": "preference|fact|background|other", "importance": 1到10的整数}]}
+没有新记忆时输出 {"memories": []}`
+
+// ExtractMemories 用记忆 AI 从当前对话历史中提取新记忆。
+// existing 为已存记忆列表，注入 prompt 由 AI 判断去重；
+// onReasoning 非空时流式输出 AI 的思考过程。
+func (b *Bot) ExtractMemories(ctx context.Context, existing []store.Memory, onReasoning func(string)) ([]store.Memory, error) {
+	if b.memoryProvider.APIKey == "" {
+		return nil, fmt.Errorf("记忆AI供应商 %s 未配置 api_key，请编辑 data/config.yaml", b.memoryProvider.Name)
+	}
+	if len(b.history) == 0 {
+		return nil, errors.New("没有可提取的对话历史")
+	}
+	sys := memoryExtractPrompt
+	if len(existing) > 0 {
+		var sb strings.Builder
+		sb.WriteString(sys)
+		sb.WriteString("\n已有记忆（请勿重复提取）：\n")
+		for _, m := range existing {
+			fmt.Fprintf(&sb, "- %s (类别: %s, 重要度: %d)\n", m.Content, m.Category, m.Importance)
+		}
+		sys = sb.String()
+	}
+	messages := make([]openai.ChatCompletionMessageParamUnion, 0, len(b.history)+1)
+	messages = append(messages, openai.SystemMessage(sys))
+	messages = append(messages, b.history...)
+
+	params := openai.ChatCompletionNewParams{
+		Model:    b.memoryModel,
+		Messages: messages,
+	}
+	b.applyThinkingParams(&params, b.memoryProvider)
+	params.SetExtraFields(map[string]any{"response_format": map[string]string{"type": "json_object"}})
+	stream := b.clientFor(b.memoryProvider).Chat.Completions.NewStreaming(ctx, params)
+	var content strings.Builder
+	for stream.Next() {
+		for _, choice := range stream.Current().Choices {
+			if onReasoning != nil {
+				if s := extraReasoning(choice.Delta.RawJSON()); s != "" {
+					onReasoning(s)
+				}
+			}
+			content.WriteString(choice.Delta.Content)
+		}
+	}
+	if err := stream.Err(); err != nil {
+		return nil, fmt.Errorf("记忆提取请求失败: %w", err)
+	}
+	text := strings.TrimSpace(content.String())
+	if text == "" {
+		return nil, nil
+	}
+	raw := gjson.Get(text, "memories").Raw
+	if raw == "" {
+		raw = text
+	}
+	var extracted []struct {
+		Content    string `json:"content"`
+		Category   string `json:"category"`
+		Importance int    `json:"importance"`
+	}
+	if err := json.Unmarshal([]byte(raw), &extracted); err != nil {
+		return nil, fmt.Errorf("解析记忆输出失败: %w", err)
+	}
+	var out []store.Memory
+	for _, e := range extracted {
+		c := strings.TrimSpace(e.Content)
+		if c == "" {
+			continue
+		}
+		if e.Importance < 0 {
+			e.Importance = 0
+		}
+		if e.Importance > 10 {
+			e.Importance = 10
+		}
+		out = append(out, store.Memory{Content: c, Category: e.Category, Importance: e.Importance})
+	}
+	return out, nil
 }
 
 func (b *Bot) SessionMessages() []store.Message {
