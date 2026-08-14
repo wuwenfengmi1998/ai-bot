@@ -3,6 +3,7 @@ package store
 import (
 	"database/sql"
 	"fmt"
+	"strings"
 	"time"
 )
 
@@ -179,6 +180,51 @@ func UnindexedMemoryIDs(db *sql.DB) ([]int64, error) {
 			return nil, fmt.Errorf("读取记忆 id 失败: %w", err)
 		}
 		out = append(out, id)
+	}
+	return out, rows.Err()
+}
+
+// SearchMemoriesByTokens 按 token id 搜索相关记忆，按命中 token 数从多到少排序。
+// limit 钳制在 1-10。
+func SearchMemoriesByTokens(db *sql.DB, tokenIDs []int64, limit int) ([]Memory, error) {
+	if len(tokenIDs) == 0 {
+		return nil, nil
+	}
+	if limit < 1 {
+		limit = 1
+	}
+	if limit > 10 {
+		limit = 10
+	}
+	placeholders := make([]string, len(tokenIDs))
+	args := make([]any, 0, len(tokenIDs)+1)
+	for i, tid := range tokenIDs {
+		placeholders[i] = "?"
+		args = append(args, tid)
+	}
+	args = append(args, limit)
+	query := `SELECT m.id, m.created_at, m.source_session_id, m.content, m.category, m.importance
+FROM memory_tokens mt JOIN memories m ON m.id = mt.memory_id
+WHERE mt.token_id IN (` + strings.Join(placeholders, ", ") + `)
+GROUP BY m.id
+ORDER BY COUNT(*) DESC, m.id DESC
+LIMIT ?`
+	rows, err := db.Query(query, args...)
+	if err != nil {
+		return nil, fmt.Errorf("搜索记忆失败: %w", err)
+	}
+	defer rows.Close()
+	var out []Memory
+	for rows.Next() {
+		var (
+			m       Memory
+			created string
+		)
+		if err := rows.Scan(&m.ID, &created, &m.SourceSessionID, &m.Content, &m.Category, &m.Importance); err != nil {
+			return nil, fmt.Errorf("读取记忆失败: %w", err)
+		}
+		m.CreatedAt = parseTime(created)
+		out = append(out, m)
 	}
 	return out, rows.Err()
 }

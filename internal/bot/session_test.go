@@ -12,7 +12,7 @@ import (
 func newTestBot(t *testing.T) *Bot {
 	t.Helper()
 	t.Chdir(t.TempDir())
-	for _, name := range []string{"get_current_time", "calculate", "random_number"} {
+	for _, name := range []string{"get_current_time", "calculate", "random_number", "recall_memory"} {
 		if err := config.WriteDefaultToolConfig(name, map[string]any{"enabled": true, "prompt": "p"}); err != nil {
 			t.Fatalf("写入工具配置失败: %v", err)
 		}
@@ -26,7 +26,7 @@ func newTestBot(t *testing.T) *Bot {
 			{Name: "p", BaseURL: "x", Models: []config.ModelConfig{{Name: "m"}}},
 		},
 	}
-	b, err := New(cfg)
+	b, err := New(cfg, nil)
 	if err != nil {
 		t.Fatalf("New 出错: %v", err)
 	}

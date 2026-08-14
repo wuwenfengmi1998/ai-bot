@@ -9,6 +9,7 @@ import (
 
 	"myaibot/internal/bot"
 	"myaibot/internal/store"
+	"myaibot/internal/tokens"
 )
 
 type Handler struct {
@@ -62,7 +63,7 @@ func (h *Handler) indexMemories(newIDs []int64) error {
 		if m == nil {
 			continue
 		}
-		if err := store.SaveMemoryTokens(h.db, id, bot.Tokenize(m.Content)); err != nil {
+		if err := store.SaveMemoryTokens(h.db, id, tokens.Tokenize(m.Content)); err != nil {
 			return fmt.Errorf("记忆 #%d 建索引失败: %w", id, err)
 		}
 	}

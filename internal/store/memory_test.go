@@ -146,3 +146,68 @@ func TestLoadMemory(t *testing.T) {
 		t.Errorf("不存在应返回 nil: %v, %v", missing, err)
 	}
 }
+
+func TestSearchMemoriesByTokens(t *testing.T) {
+	db := openMemDB(t)
+	ids, err := SaveMemories(db, []Memory{
+		{Content: "用户喜欢喝咖啡", Category: "preference"},
+		{Content: "用户喜欢喝咖啡和茶", Category: "preference"},
+		{Content: "用户是 Go 开发者", Category: "fact"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	// 手工建索引：记忆1 含 token 100,200；记忆2 含 100,200,300；记忆3 含 400
+	if err := SaveMemoryTokens(db, ids[0], []int64{100, 200}); err != nil {
+		t.Fatal(err)
+	}
+	if err := SaveMemoryTokens(db, ids[1], []int64{100, 200, 300}); err != nil {
+		t.Fatal(err)
+	}
+	if err := SaveMemoryTokens(db, ids[2], []int64{400}); err != nil {
+		t.Fatal(err)
+	}
+
+	// 命中数优先：记忆2 命中 3 个 token 排第一
+	res, err := SearchMemoriesByTokens(db, []int64{100, 200, 300, 400}, 5)
+	if err != nil {
+		t.Fatalf("搜索出错: %v", err)
+	}
+	if len(res) != 3 {
+		t.Fatalf("命中数量 = %d, want 3", len(res))
+	}
+	if res[0].ID != ids[1] {
+		t.Errorf("命中数最多的应排第一: %v", res[0])
+	}
+
+	// limit 钳制与命中子集
+	res, err = SearchMemoriesByTokens(db, []int64{100}, 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(res) != 2 {
+		t.Errorf("limit 10 应命中 2 条, got %d", len(res))
+	}
+	res, err = SearchMemoriesByTokens(db, []int64{100}, 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(res) != 1 {
+		t.Errorf("limit 1 应只返回 1 条, got %d", len(res))
+	}
+
+	// 无命中
+	res, err = SearchMemoriesByTokens(db, []int64{9999}, 5)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(res) != 0 {
+		t.Errorf("无命中应返回空, got %d", len(res))
+	}
+
+	// 空 token
+	res, err = SearchMemoriesByTokens(db, nil, 5)
+	if err != nil || res != nil {
+		t.Errorf("空 token 应返回 nil, %v %v", res, err)
+	}
+}

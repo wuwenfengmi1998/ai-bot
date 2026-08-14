@@ -33,7 +33,7 @@ func main() {
 	}
 	fmt.Printf("💾 数据库已连接 (%s)\n", cfg.Database.Driver)
 
-	b, err := bot.New(cfg)
+	b, err := bot.New(cfg, db)
 	if err != nil {
 		fmt.Printf("⚠️  %v\n", err)
 		fmt.Println("请填写工具配置文件后重新启动。")

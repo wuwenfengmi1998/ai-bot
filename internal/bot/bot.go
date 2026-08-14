@@ -2,6 +2,7 @@ package bot
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -12,10 +13,10 @@ import (
 	"github.com/openai/openai-go/packages/param"
 	"github.com/openai/openai-go/shared"
 	"github.com/openai/openai-go/shared/constant"
-	"github.com/pkoukk/tiktoken-go"
 	"github.com/tidwall/gjson"
 	"myaibot/internal/config"
 	"myaibot/internal/store"
+	"myaibot/internal/tokens"
 	"myaibot/internal/tools"
 	"myaibot/internal/tools/builtin"
 )
@@ -41,12 +42,12 @@ type Bot struct {
 	toolRegistry   *tools.Registry
 }
 
-func New(cfg *config.Config) (*Bot, error) {
+func New(cfg *config.Config, db *sql.DB) (*Bot, error) {
 	b := &Bot{
 		clients:      make(map[string]*openai.Client),
 		cfg:          cfg,
 		systemPrompt: cfg.SystemPrompt,
-		toolRegistry: tools.NewRegistry(builtin.NewTimeTool(), builtin.NewCalculatorTool(), builtin.NewRandomTool()),
+		toolRegistry: tools.NewRegistry(builtin.NewTimeTool(), builtin.NewCalculatorTool(), builtin.NewRandomTool(), builtin.NewRecallTool(db)),
 	}
 	b.provider = config.FindProviderIn(cfg, cfg.DefaultProvider)
 	b.model = cfg.DefaultModel
@@ -153,7 +154,7 @@ func (b *Bot) ContextWindow() int64 {
 // ContextStats 统计当前上下文的 token 使用量与窗口总大小（0 表示未配置）。
 func (b *Bot) ContextStats() (used, total int64) {
 	total = b.ContextWindow()
-	used += estimateTokens(b.systemPrompt)
+	used += tokens.Count(b.systemPrompt)
 	for _, msg := range b.history {
 		var content string
 		switch {
@@ -164,52 +165,9 @@ func (b *Bot) ContextStats() (used, total int64) {
 		case msg.OfSystem != nil:
 			content = msg.OfSystem.Content.OfString.Value
 		}
-		used += estimateTokens(content)
+		used += tokens.Count(content)
 	}
 	return used, total
-}
-
-var tke *tiktoken.Tiktoken
-
-// Tokenize 将文本编码为 o200k_base token id 列表（去重）。
-func Tokenize(text string) []int64 {
-	if text == "" {
-		return nil
-	}
-	if tke == nil {
-		t, err := tiktoken.GetEncoding("o200k_base")
-		if err != nil {
-			return nil
-		}
-		tke = t
-	}
-	seen := make(map[int64]bool)
-	var out []int64
-	for _, id := range tke.Encode(text, nil, nil) {
-		tid := int64(id)
-		if seen[tid] {
-			continue
-		}
-		seen[tid] = true
-		out = append(out, tid)
-	}
-	return out
-}
-
-// estimateTokens 用 o200k_base 词表精确统计 token；
-// 初始化失败（如无法下载词表）时回退为字符数/2 估算。
-func estimateTokens(s string) int64 {
-	if s == "" {
-		return 0
-	}
-	if tke == nil {
-		t, err := tiktoken.GetEncoding("o200k_base")
-		if err != nil {
-			return int64(len([]rune(s)) / 2)
-		}
-		tke = t
-	}
-	return int64(len(tke.Encode(s, nil, nil)))
 }
 
 const memoryExtractPrompt = `你是记忆提取器。从下面的对话中提取值得长期记住的信息，包括：

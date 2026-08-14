@@ -3,13 +3,15 @@ package bot
 import (
 	"testing"
 
+	"myaibot/internal/tokens"
+
 	"github.com/openai/openai-go"
 
 	"myaibot/internal/config"
 )
 
 func TestEstimateTokensEmpty(t *testing.T) {
-	if n := estimateTokens(""); n != 0 {
+	if n := tokens.Count(""); n != 0 {
 		t.Errorf("空串应为 0, got %d", n)
 	}
 }
@@ -25,14 +27,14 @@ func TestEstimateTokensKnown(t *testing.T) {
 		{"你是一个乐于助人的 AI 助手。", 12},
 	}
 	for _, c := range cases {
-		if n := estimateTokens(c.text); n != c.want {
-			t.Errorf("estimateTokens(%q) = %d, want %d", c.text, n, c.want)
+		if n := tokens.Count(c.text); n != c.want {
+			t.Errorf("tokens.Count(%q) = %d, want %d", c.text, n, c.want)
 		}
 	}
 }
 
 func TestTokenize(t *testing.T) {
-	ids := Tokenize("hello hello world")
+	ids := tokens.Tokenize("hello hello world")
 	if len(ids) < 2 {
 		t.Errorf("应有多个 token, got %v", ids)
 	}
@@ -43,10 +45,10 @@ func TestTokenize(t *testing.T) {
 		}
 		seen[id] = true
 	}
-	if len(Tokenize("")) != 0 {
+	if len(tokens.Tokenize("")) != 0 {
 		t.Error("空串应返回空")
 	}
-	chinese := Tokenize("用户喜欢喝咖啡")
+	chinese := tokens.Tokenize("用户喜欢喝咖啡")
 	if len(chinese) == 0 {
 		t.Error("中文文本应产生 token")
 	}
