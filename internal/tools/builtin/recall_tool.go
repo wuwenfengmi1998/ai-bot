@@ -68,7 +68,7 @@ func (t *recallTool) Execute(args json.RawMessage) (string, error) {
 	if p.Limit == 0 {
 		p.Limit = 5
 	}
-	memories, err := store.SearchMemoriesByTokens(t.db, tokens.Tokenize(query), p.Limit)
+	memories, err := store.SearchMemoriesByTokens(t.db, tokens.TokenIDs(tokens.Tokenize(query)), p.Limit)
 	if err != nil {
 		return "", err
 	}

@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"myaibot/internal/config"
+	"myaibot/internal/tokens"
 )
 
 func openMemDB(t *testing.T) *sql.DB {
@@ -80,8 +81,9 @@ func TestMemoryTokens(t *testing.T) {
 		t.Fatalf("SaveMemories 出错: %v", err)
 	}
 	// 同一记忆建索引两次应幂等
+	tok := []tokens.Token{{ID: 100, Text: " 100"}, {ID: 200, Text: " 200"}}
 	for i := 0; i < 2; i++ {
-		if err := SaveMemoryTokens(db, ids[0], []int64{100, 200, 100}); err != nil {
+		if err := SaveMemoryTokens(db, ids[0], tok); err != nil {
 			t.Fatalf("SaveMemoryTokens 出错: %v", err)
 		}
 	}
@@ -92,6 +94,13 @@ func TestMemoryTokens(t *testing.T) {
 	if tokenCount != 2 {
 		t.Errorf("token 应去重为 2, got %d", tokenCount)
 	}
+	var text string
+	if err := db.QueryRow("SELECT token_text FROM tokens WHERE token_id = 100").Scan(&text); err != nil {
+		t.Fatal(err)
+	}
+	if text != " 100" {
+		t.Errorf("token_text 应为 \" 100\", got %q", text)
+	}
 	var linkCount int64
 	if err := db.QueryRow("SELECT COUNT(*) FROM memory_tokens").Scan(&linkCount); err != nil {
 		t.Fatal(err)
@@ -101,7 +110,7 @@ func TestMemoryTokens(t *testing.T) {
 	}
 
 	// 另一条记忆建索引
-	if err := SaveMemoryTokens(db, ids[1], []int64{200, 300}); err != nil {
+	if err := SaveMemoryTokens(db, ids[1], []tokens.Token{{ID: 200, Text: " 200"}, {ID: 300, Text: " 300"}}); err != nil {
 		t.Fatalf("SaveMemoryTokens 出错: %v", err)
 	}
 
@@ -125,6 +134,46 @@ func TestMemoryTokens(t *testing.T) {
 	}
 	if len(unindexed) != 1 || unindexed[0] != ids2[0] {
 		t.Errorf("未索引应只有新记忆: %v", unindexed)
+	}
+}
+
+func TestMigrateLegacyTokensTable(t *testing.T) {
+	db := openMemDB(t)
+	// 模拟旧库：删除新结构 tokens 表，重建无 token_text 的旧表并插入旧数据
+	if _, err := db.Exec("DROP TABLE tokens"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(`CREATE TABLE tokens (
+		token_id   INTEGER PRIMARY KEY,
+		created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+	)`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec("INSERT INTO tokens (token_id) VALUES (100), (200)"); err != nil {
+		t.Fatal(err)
+	}
+
+	// 重新执行迁移：应补列并回填文本
+	if err := Migrate(db, "sqlite3"); err != nil {
+		t.Fatalf("Migrate 出错: %v", err)
+	}
+	var count int64
+	if err := db.QueryRow("SELECT COUNT(*) FROM tokens WHERE token_text = ''").Scan(&count); err != nil {
+		t.Fatal(err)
+	}
+	if count != 0 {
+		t.Errorf("回填后不应有空的 token_text, 剩余 %d", count)
+	}
+	var text string
+	if err := db.QueryRow("SELECT token_text FROM tokens WHERE token_id = 100").Scan(&text); err != nil {
+		t.Fatal(err)
+	}
+	if text == "" {
+		t.Error("token_id 100 的文本应已回填")
+	}
+	// 幂等：再次迁移不报错
+	if err := Migrate(db, "sqlite3"); err != nil {
+		t.Fatalf("重复迁移出错: %v", err)
 	}
 }
 
@@ -158,13 +207,13 @@ func TestSearchMemoriesByTokens(t *testing.T) {
 		t.Fatal(err)
 	}
 	// 手工建索引：记忆1 含 token 100,200；记忆2 含 100,200,300；记忆3 含 400
-	if err := SaveMemoryTokens(db, ids[0], []int64{100, 200}); err != nil {
+	if err := SaveMemoryTokens(db, ids[0], []tokens.Token{{ID: 100, Text: " 100"}, {ID: 200, Text: " 200"}}); err != nil {
 		t.Fatal(err)
 	}
-	if err := SaveMemoryTokens(db, ids[1], []int64{100, 200, 300}); err != nil {
+	if err := SaveMemoryTokens(db, ids[1], []tokens.Token{{ID: 100, Text: " 100"}, {ID: 200, Text: " 200"}, {ID: 300, Text: " 300"}}); err != nil {
 		t.Fatal(err)
 	}
-	if err := SaveMemoryTokens(db, ids[2], []int64{400}); err != nil {
+	if err := SaveMemoryTokens(db, ids[2], []tokens.Token{{ID: 400, Text: " 400"}}); err != nil {
 		t.Fatal(err)
 	}
 

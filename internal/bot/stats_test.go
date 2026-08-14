@@ -39,11 +39,14 @@ func TestTokenize(t *testing.T) {
 		t.Errorf("应有多个 token, got %v", ids)
 	}
 	seen := make(map[int64]bool)
-	for _, id := range ids {
-		if seen[id] {
+	for _, tok := range ids {
+		if tok.Text == "" {
+			t.Errorf("token 文本不应为空: %+v", tok)
+		}
+		if seen[tok.ID] {
 			t.Errorf("token 应去重: %v", ids)
 		}
-		seen[id] = true
+		seen[tok.ID] = true
 	}
 	if len(tokens.Tokenize("")) != 0 {
 		t.Error("空串应返回空")
@@ -51,6 +54,9 @@ func TestTokenize(t *testing.T) {
 	chinese := tokens.Tokenize("用户喜欢喝咖啡")
 	if len(chinese) == 0 {
 		t.Error("中文文本应产生 token")
+	}
+	if got := tokens.TokenIDs(ids); len(got) != len(ids) {
+		t.Errorf("TokenIDs 数量 = %d, want %d", len(got), len(ids))
 	}
 }
 
